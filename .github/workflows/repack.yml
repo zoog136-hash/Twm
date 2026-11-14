@@ -1,0 +1,58 @@
+name: Repack resource pack into fewer parts
+on:
+  workflow_dispatch:
+    inputs:
+      source_tag: {description: 'release with the small parts', required: true, default: 'pack-b2162b06'}
+permissions:
+  contents: write
+jobs:
+  repack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p /mnt/w && sudo chown "$USER" /mnt/w
+          df -h / /mnt
+      - uses: actions/checkout@v4
+        with:
+          repository: zoog136-hash/-
+          path: code
+          sparse-checkout: tools/android
+      - name: Download small parts and add-ons
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          cd /mnt/w
+          gh release download "${{ inputs.source_tag }}" -R "$GITHUB_REPOSITORY" -D dl
+          ls -la dl | head -40
+      - name: Extract
+        run: |
+          set -euo pipefail
+          cd /mnt/w; mkdir x
+          for z in dl/twilight523-resources-*.zip; do unzip -q -o "$z" -d x; rm -f "$z"; done
+          rm -f x/source523/source523_part.json x/source523/source523_pack.json
+          du -sh x/source523/*; df -h /mnt
+      - name: Rebuild with large parts
+        run: |
+          set -euo pipefail
+          cd /mnt/w; r=x/source523
+          python3 "$GITHUB_WORKSPACE/code/tools/android/build_client523_resource_pack.py" \
+            --tables $r/tables/source.zip --bank $r/bank --images $r/images --maps $r/maps \
+            --tiles $r/tiles --ui-icons $r/ui_icons --output out > report.json
+          python3 -c "import json;r=json.load(open('report.json'));print(r['pack_id']);[print(p) for p in r['parts']]"
+          ls -la out
+      - name: Publish
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          cd /mnt/w
+          id=$(python3 -c "import json;print(json.load(open('report.json'))['pack_id'][:8])")
+          n=$(ls out/twilight523-resources-*.zip | wc -l)
+          tag="pack-$id"
+          gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$tag" -R "$GITHUB_REPOSITORY" --target main \
+            --title "리소스팩 $id ($n조각, 큰 조각)" \
+            --notes "TWILIGHT 523 리소스팩 큰 조각판(팩 ID $id). 리소스팩 $n개를 모두 받아 앱 설치 화면에서 한꺼번에 선택하세요. 추가 리소스 zip 2개(UI, 월드 연결)는 설치 후 설정에서 설치합니다. ${{ inputs.source_tag }}(28조각)와 섞지 마세요."
+          gh release upload "$tag" -R "$GITHUB_REPOSITORY" --clobber out/twilight523-resources-*.zip dl/twilight523-addon-*.zip
+          echo "published $tag"
