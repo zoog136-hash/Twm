@@ -1,0 +1,22 @@
+name: Verify a release asset
+on:
+  workflow_dispatch:
+    inputs:
+      tag: {required: true}
+      asset: {required: true}
+      member: {required: false, default: ''}
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download and test
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /mnt/w && sudo chown "$USER" /mnt/w && cd /mnt/w
+          gh release download "${{ inputs.tag }}" -R "$GITHUB_REPOSITORY" -p "${{ inputs.asset }}"
+          ls -la; sha256sum "${{ inputs.asset }}"
+          unzip -tq "${{ inputs.asset }}"
+          if [ -n "${{ inputs.member }}" ]; then unzip -lv "${{ inputs.asset }}" "${{ inputs.member }}"; fi
