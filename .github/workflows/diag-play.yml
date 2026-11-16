@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [headless-save, xvfb-save, headless-new]
+        mode: [headless-save, xvfb-save]
     steps:
       - name: Free disk
         run: |
@@ -72,7 +72,22 @@ jobs:
             gh release download pack-63fb1355 -R "$GITHUB_REPOSITORY" -p "$name" -D dl
             unzip -q -o "dl/$name" -d x
             rm -f "dl/$name"
+            # Add-ons: record their sections the way the phone installer does.
+            if [ -f x/source523/source523_addon.json ]; then
+              python3 - x/source523 <<'PY'
+          import json, os, sys
+          base = sys.argv[1]
+          addon = json.load(open(os.path.join(base, 'source523_addon.json')))
+          path = os.path.join(base, 'source523_addons.json')
+          merged = json.load(open(path)) if os.path.exists(path) else {}
+          merged.update(addon['sections'])
+          json.dump(merged, open(path, 'w'), indent=1)
+          print('addons', sorted(merged))
+          PY
+              rm -f x/source523/source523_addon.json
+            fi
           done < names.txt
+          cat x/source523/source523_addons.json
           ls x; ls x/source523; du -sh x/source523/* | sort -h | tail; df -h /mnt
       - name: Play (${{ matrix.mode }})
         run: |
@@ -91,11 +106,7 @@ jobs:
           code=$?
           echo "exit=$code"
           grep -v '^BOOT_PROGRESS' /mnt/w/play.txt | grep -n -B3 -A12 'SCRIPT ERROR\|ERROR:\|DIAG_\|entered game\|world scene ready\|signal 11\|Segmentation' | head -400
-          echo "----- tail"; grep -v '^BOOT_PROGRESS' /mnt/w/play.txt | tail -80
+          echo "----- boot tail"; grep '^BOOT_PROGRESS' /mnt/w/play.txt | tail -60 | cut -c1-400
+          echo "----- tail"; grep -v '^BOOT_PROGRESS' /mnt/w/play.txt | grep -v 'DIAG t=.* tick' | tail -80
           mkdir -p out; cp /mnt/w/play.txt out/; cp -r "$U/$dir"/boot_progress*.log out/ 2>/dev/null; cp "$U/$dir"/*error* out/ 2>/dev/null
           exit 0
-      - uses: actions/upload-artifact@v4
-        with:
-          name: diag-${{ matrix.mode }}
-          path: out
-          retention-days: 3

@@ -44,10 +44,19 @@ func _process(_delta: float) -> void:
 		if now - last_tick >= 1000:
 			last_tick = now
 			var monsters: int = get_tree().get_nodes_in_group("monsters").size()
-			_say("tick paused=%s monsters=%d fps=%d" % [get_tree().paused, monsters, Engine.get_frames_per_second()])
+			var loading: Node = _find_loading(get_tree().root)
+			var stage: String = "" if loading == null else str(loading.get("_status_text") if loading.get("_status_text") != null else "") + " awaiting=" + str(loading.get("_awaiting_title")) + " running=" + str(loading.get("_running"))
+			_say("tick paused=%s monsters=%d fps=%d loading=%s" % [get_tree().paused, monsters, Engine.get_frames_per_second(), stage])
 		if now - world_at >= int(PLAY_SECONDS * 1000.0):
 			_say("DIAG_DONE survived %.0fs in world" % PLAY_SECONDS)
 			get_tree().quit(0)
 	if now - started > 2400 * 1000:
 		_say("DIAG_TIMEOUT")
 		get_tree().quit(3)
+
+func _find_loading(node: Node) -> Node:
+	if node != get_tree().root and node.get("_awaiting_title") != null: return node
+	for child: Node in node.get_children():
+		var found: Node = _find_loading(child)
+		if found != null: return found
+	return null
