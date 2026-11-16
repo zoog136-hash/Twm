@@ -204,7 +204,7 @@ jobs:
           PY
           cd /mnt/w
           fmt=$(python3 -c "import json;print(json.load(open('m/cooked_manifest.json'))['format'])")
-          python3 code/tools/cook/pack_cooked_part.py $args --format "$fmt" --cooked-id ${{ needs.setup.outputs.cooked_id }} \
+          python3 "$GITHUB_WORKSPACE/code/tools/cook/pack_cooked_part.py" $args --format "$fmt" --cooked-id ${{ needs.setup.outputs.cooked_id }} \
             --output parts --extra m/cooked_manifest.json > parts.jsonl
           cat parts.jsonl
           python3 - <<'PY'
