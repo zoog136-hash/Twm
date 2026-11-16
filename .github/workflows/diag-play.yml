@@ -1,0 +1,101 @@
+name: Diag - play the real 523 pack and capture script errors
+# Diagnostic only: installs the private pack on the runner, runs the game's
+# real Loading -> Main path with the editor (debug) binary, which reports
+# GDScript runtime errors as "SCRIPT ERROR file:line" where the phone's
+# release template crashes natively (SIGSEGV, Array::size() on null).
+# Nothing is published; logs are kept as a 3-day workflow artifact.
+on:
+  push:
+    branches: ['diag/**']
+    paths: ['.github/workflows/diag-play.yml', '.github/diag/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  play:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [headless-save, xvfb-save, headless-new]
+    steps:
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p /mnt/w && sudo chown "$USER" /mnt/w
+          df -h / /mnt
+      - uses: actions/checkout@v4
+        with: {sparse-checkout: .github}
+      - uses: actions/checkout@v4
+        with:
+          repository: zoog136-hash/-
+          ref: main
+          path: code
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/
+            /docs/.gdignore
+            !/external_map_packs/
+      - name: Install official Godot 4.7.2 editor
+        run: |
+          curl -L --fail --retry 2 -o "$RUNNER_TEMP/godot.zip" https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP"
+          echo "G=$RUNNER_TEMP/Godot_v4.7.2-stable_linux.x86_64" >> "$GITHUB_ENV"
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglx-mesa0 > /dev/null
+      - name: Stage the game with the diag driver
+        run: |
+          set -euo pipefail
+          cd code; git log -1 --format='code %H %s'
+          P="$RUNNER_TEMP/game"; mkdir -p "$P"
+          cp -a . "$P"/; rm -rf "$P/.git"
+          mkdir -p "$P/diag"; cp "$GITHUB_WORKSPACE/.github/diag/diag_driver.gd" "$P/diag/"
+          python3 - "$P/project.godot" <<'PY'
+          import sys; p=sys.argv[1]; s=open(p).read()
+          s=s.replace('[autoload]\n','[autoload]\n\nDiagDriver="*res://diag/diag_driver.gd"\n',1)
+          open(p,'w').write(s)
+          PY
+          grep -n DiagDriver "$P/project.godot"
+          echo "P=$P" >> "$GITHUB_ENV"
+          timeout 1800 "$G" --headless --path "$P" --editor --import --quit > "$RUNNER_TEMP/import.txt" 2>&1 || (tail -40 "$RUNNER_TEMP/import.txt"; exit 1)
+          tail -3 "$RUNNER_TEMP/import.txt"
+      - name: Download and extract the full 8-part pack + add-ons
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          cd /mnt/w; mkdir -p dl x
+          gh release view pack-63fb1355 -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep '^twilight523-' > names.txt
+          cat names.txt
+          while read -r name; do
+            gh release download pack-63fb1355 -R "$GITHUB_REPOSITORY" -p "$name" -D dl
+            unzip -q -o "dl/$name" -d x
+            rm -f "dl/$name"
+          done < names.txt
+          ls x; ls x/source523; du -sh x/source523/* | sort -h | tail; df -h /mnt
+      - name: Play (${{ matrix.mode }})
+        run: |
+          set +e
+          U="$HOME/.local/share/godot/app_userdata"
+          mkdir -p "$U"
+          dir=$(python3 -c "import re;s=open('$P/project.godot').read();print(re.search(r'config/name=\"(.*)\"',s).group(1))")
+          mkdir -p "$U/$dir"
+          case "${{ matrix.mode }}" in *-save) cp .github/diag/save_q.json "$U/$dir/twilight_v20_save.json";; esac
+          ls -la "$U/$dir"
+          args="--path $P -- --source523-pack=/mnt/w/x/source523"
+          case "${{ matrix.mode }}" in
+            xvfb-*) timeout 2500 xvfb-run -a -s "-screen 0 1280x720x24" "$G" --rendering-method gl_compatibility --rendering-driver opengl3 --resolution 1280x720 $args > /mnt/w/play.txt 2>&1;;
+            *) timeout 2500 "$G" --headless $args > /mnt/w/play.txt 2>&1;;
+          esac
+          code=$?
+          echo "exit=$code"
+          grep -v '^BOOT_PROGRESS' /mnt/w/play.txt | grep -n -B3 -A12 'SCRIPT ERROR\|ERROR:\|DIAG_\|entered game\|world scene ready\|signal 11\|Segmentation' | head -400
+          echo "----- tail"; grep -v '^BOOT_PROGRESS' /mnt/w/play.txt | tail -80
+          mkdir -p out; cp /mnt/w/play.txt out/; cp -r "$U/$dir"/boot_progress*.log out/ 2>/dev/null; cp "$U/$dir"/*error* out/ 2>/dev/null
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diag-${{ matrix.mode }}
+          path: out
+          retention-days: 3
