@@ -59,7 +59,7 @@ jobs:
           code_sha=$(git ls-remote https://github.com/zoog136-hash/- "$ref" | head -1 | cut -f1)
           [ -n "$code_sha" ] || code_sha="$ref"
           cooked_id=$(printf '%s|%s|%s|%s|%s|%s' "$source_tag" "$code_sha" "$shards" "$limit" "$lossless" "$kinds" | sha256sum | cut -d' ' -f1)
-          tag="cooked-${source_tag#pack-}-v1"
+          tag="cooked-${source_tag#pack-}-v2"
           [ "$limit" = "0" ] || tag="$tag-trial"
           [ "$lossless" = "true" ] && tag="$tag-lossless"
           matrix=$(python3 -c "import json;print(json.dumps(list(range($shards))))")
@@ -161,17 +161,31 @@ jobs:
           tag = sys.argv[1]
           parts = sorted((json.load(open(p)) for p in glob.glob('part-*.json')), key=lambda p: p['part'])
           reports = [json.load(open(p)) for p in sorted(glob.glob('cook-report-*.json'))]
-          totals = {}
-          failures = {}
+          totals, failures, filters, kinds, verification, effects = {}, {}, {}, {}, {}, {}
+          psnr_min, max_error = 99.0, 0
           for r in reports:
-              for k, v in r.get('totals', {}).items(): totals[k] = totals.get(k, 0) + v
-              for a, e in r['actors'].items():
-                  if not e.get('ok'): failures[e.get('error', '')] = failures.get(e.get('error', ''), 0) + 1
+              for k, v in r.get('totals', {}).items():
+                  if k == 'etc2_psnr_min': psnr_min = min(psnr_min, v)
+                  elif k == 'etc2_max_error': max_error = max(max_error, v)
+                  else: totals[k] = totals.get(k, 0) + v
+              for k, v in r.get('failure_reasons', {}).items(): failures[k] = failures.get(k, 0) + v
+              for k, v in r.get('verification', {}).items():
+                  if k == 'etc2_psnr_db_min': verification[k] = min(verification.get(k, 99.0), v)
+                  elif k == 'etc2_max_error': verification[k] = max(verification.get(k, 0), v)
+                  else: verification[k] = verification.get(k, 0) + v
+              for kind, t in r.get('by_kind', {}).items():
+                  d = kinds.setdefault(kind, {})
+                  for k, v in t.items(): d[k] = d.get(k, 0) + v
+          filters = reports[0].get('job_filters', {})
+          effects = {'rejections': reports[0].get('effect_selection_rejections', {}), 'domain_index': reports[0].get('effect_domain_index', {})}
+          totals['block_psnr_min'] = psnr_min
+          totals['block_max_error'] = max_error
           manifest = {'tag': tag, 'cooked_id': '${{ needs.setup.outputs.cooked_id }}', 'source_tag': '${{ needs.setup.outputs.source_tag }}',
                       'code_sha': '${{ needs.setup.outputs.code_sha }}', 'format': reports[0]['format'], 'engine': reports[0]['engine'],
                       'source_pack_id': reports[0].get('source_pack_id'), 'bank_manifest_sha256': reports[0].get('bank_manifest_sha256'),
-                      'tables_sha256': reports[0].get('tables_sha256'), 'parts': parts, 'totals': totals,
-                      'failure_reasons': dict(sorted(failures.items(), key=lambda kv: -kv[1])),
+                      'tables_sha256': reports[0].get('tables_sha256'), 'parts': parts, 'totals': totals, 'by_kind': kinds,
+                      'job_counts': reports[0].get('job_counts'), 'bundles_total': reports[0].get('bundles_total'), 'job_filters': filters,
+                      'effects': effects, 'failure_reasons': dict(sorted(failures.items(), key=lambda kv: -kv[1])), 'verification': verification,
                       'shard_msec': [r.get('msec') for r in reports], 'part_bytes_total': sum(p['bytes'] for p in parts)}
           json.dump(manifest, open('cooked_manifest.json', 'w'), indent=1)
           print(json.dumps({k: v for k, v in manifest.items() if k != 'parts'}, indent=1))
