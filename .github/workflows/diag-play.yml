@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [headless-save, headless-new]
+        mode: [headless-new]
     steps:
       - name: Free disk
         run: |
@@ -106,6 +106,8 @@ jobs:
           code=$?
           echo "exit=$code"
           grep -v '^BOOT_PROGRESS' /mnt/w/play.txt | grep -n -B3 -A12 'SCRIPT ERROR\|ERROR:\|DIAG_\|entered game\|world scene ready\|signal 11\|Segmentation' | head -400
+          echo "----- script errors with context"; grep -v '^BOOT_PROGRESS\|tick paused' /mnt/w/play.txt | grep -n -B2 -A8 'SCRIPT ERROR' | head -300
+          echo "----- sweep"; grep 'sweep\|spawn' /mnt/w/play.txt | grep -v DIAG_SWEEP | head -40; grep -c DIAG_SWEEP /mnt/w/play.txt; grep DIAG_SWEEP /mnt/w/play.txt | tail -2
           echo "----- special resistance / failures"; grep -n 'SpecialResistance\|loading_failed\|ok=false\|restore' /mnt/w/play.txt | cut -c1-300 | tail -40
           echo "----- readiness"; grep 'readiness' /mnt/w/play.txt | sort -u -t' ' -k3 | head -5; grep 'readiness' /mnt/w/play.txt | tail -2
           echo "----- boot tail"; grep '^BOOT_PROGRESS' /mnt/w/play.txt | tail -60 | cut -c1-400
