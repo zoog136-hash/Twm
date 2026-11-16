@@ -14,6 +14,7 @@ on:
       shards: {description: 'parallel shards = cooked parts (each part <= 1.9 GB)', required: true, default: '8'}
       limit: {description: 'actors per shard (0 = all; >0 publishes a -trial release)', required: true, default: '0'}
       lossless: {description: 'RGBA8 everywhere instead of ETC2 opaque pages', required: true, default: 'false'}
+      kinds: {description: 'npc,class,transform,effect', required: true, default: 'npc,class,transform,effect'}
   push:
     branches: [cook-actors]
     paths: ['.github/cook-request.json', '.github/workflows/cook-actors.yml']
@@ -32,6 +33,7 @@ jobs:
       matrix: ${{ steps.p.outputs.matrix }}
       limit: ${{ steps.p.outputs.limit }}
       lossless: ${{ steps.p.outputs.lossless }}
+      kinds: ${{ steps.p.outputs.kinds }}
       cooked_id: ${{ steps.p.outputs.cooked_id }}
       tag: ${{ steps.p.outputs.tag }}
     steps:
@@ -45,22 +47,23 @@ jobs:
           IN_SHARDS: ${{ inputs.shards }}
           IN_LIMIT: ${{ inputs.limit }}
           IN_LOSSLESS: ${{ inputs.lossless }}
+          IN_KINDS: ${{ inputs.kinds }}
         run: |
           set -euo pipefail
           if [ "$EVENT" = "workflow_dispatch" ]; then
-            source_tag="$IN_SOURCE"; ref="$IN_REF"; shards="$IN_SHARDS"; limit="$IN_LIMIT"; lossless="$IN_LOSSLESS"
+            source_tag="$IN_SOURCE"; ref="$IN_REF"; shards="$IN_SHARDS"; limit="$IN_LIMIT"; lossless="$IN_LOSSLESS"; kinds="$IN_KINDS"
           else
             r=.github/cook-request.json
-            source_tag=$(jq -r .source_tag $r); ref=$(jq -r .code_ref $r); shards=$(jq -r .shards $r); limit=$(jq -r .limit $r); lossless=$(jq -r .lossless $r)
+            source_tag=$(jq -r .source_tag $r); ref=$(jq -r .code_ref $r); shards=$(jq -r .shards $r); limit=$(jq -r .limit $r); lossless=$(jq -r .lossless $r); kinds=$(jq -r '.kinds // "npc,class,transform,effect"' $r)
           fi
           code_sha=$(git ls-remote https://github.com/zoog136-hash/- "$ref" | head -1 | cut -f1)
           [ -n "$code_sha" ] || code_sha="$ref"
-          cooked_id=$(printf '%s|%s|%s|%s|%s' "$source_tag" "$code_sha" "$shards" "$limit" "$lossless" | sha256sum | cut -d' ' -f1)
+          cooked_id=$(printf '%s|%s|%s|%s|%s|%s' "$source_tag" "$code_sha" "$shards" "$limit" "$lossless" "$kinds" | sha256sum | cut -d' ' -f1)
           tag="cooked-${source_tag#pack-}-v1"
           [ "$limit" = "0" ] || tag="$tag-trial"
           [ "$lossless" = "true" ] && tag="$tag-lossless"
           matrix=$(python3 -c "import json;print(json.dumps(list(range($shards))))")
-          { echo "source_tag=$source_tag"; echo "code_sha=$code_sha"; echo "shards=$shards"; echo "limit=$limit"; echo "lossless=$lossless"
+          { echo "source_tag=$source_tag"; echo "code_sha=$code_sha"; echo "shards=$shards"; echo "limit=$limit"; echo "lossless=$lossless"; echo "kinds=$kinds"
             echo "cooked_id=$cooked_id"; echo "tag=$tag"; echo "matrix=$matrix"; } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
   cook:
@@ -122,7 +125,7 @@ jobs:
           [ "${{ needs.setup.outputs.lossless }}" = "true" ] && extra="--lossless"
           /usr/bin/time -v "$G" --headless --path "$RUNNER_TEMP/cook-project" --script res://tools/cook/cook_actors.gd -- \
             --pack=/mnt/w/x/source523 --out=/mnt/w/out --shard=${{ matrix.shard }} --shards=${{ needs.setup.outputs.shards }} \
-            --limit=${{ needs.setup.outputs.limit }} $extra 2>&1 | grep -v '^BOOT_PROGRESS' | tee /mnt/w/cook.txt | tail -200
+            --limit=${{ needs.setup.outputs.limit }} --kinds=${{ needs.setup.outputs.kinds }} $extra 2>&1 | grep -v '^BOOT_PROGRESS' | tee /mnt/w/cook.txt | tail -200
           grep -q '^COOK_ACTORS_RESULT ' /mnt/w/cook.txt
           ! grep -q 'SCRIPT ERROR' /mnt/w/cook.txt
           du -sh /mnt/w/out
