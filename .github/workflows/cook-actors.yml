@@ -1,0 +1,182 @@
+name: Cook 523 actors (build-time composited actor pack)
+# Cooks the original 523 pack's NPC actors with the game's own runtime
+# renderer (zoog136-hash/- tools/cook/cook_actors.gd, official Godot 4.7.2
+# editor binary, headless) and publishes the cooked parts to a PRIVATE release
+# of this repository: cooked-<source pack>-v1 (or -trial for a limited run).
+# Originals are verified here once (bank manifest/tables pins + every SP2
+# member SHA-256 through the runtime bank); the game pins each part's SHA-256.
+# Nothing original or cooked is ever written to the public game repository.
+on:
+  workflow_dispatch:
+    inputs:
+      source_tag: {description: 'original pack release', required: true, default: 'pack-63fb1355'}
+      code_ref: {description: 'zoog136-hash/- branch or SHA with tools/cook', required: true, default: 'main'}
+      shards: {description: 'parallel shards = cooked parts (each part <= 1.9 GB)', required: true, default: '8'}
+      limit: {description: 'actors per shard (0 = all; >0 publishes a -trial release)', required: true, default: '0'}
+      lossless: {description: 'RGBA8 everywhere instead of ETC2 opaque pages', required: true, default: 'false'}
+  push:
+    branches: [cook-actors]
+    paths: ['.github/cook-request.json', '.github/workflows/cook-actors.yml']
+permissions:
+  contents: write
+concurrency:
+  group: cook-actors
+  cancel-in-progress: false
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      source_tag: ${{ steps.p.outputs.source_tag }}
+      code_sha: ${{ steps.p.outputs.code_sha }}
+      shards: ${{ steps.p.outputs.shards }}
+      matrix: ${{ steps.p.outputs.matrix }}
+      limit: ${{ steps.p.outputs.limit }}
+      lossless: ${{ steps.p.outputs.lossless }}
+      cooked_id: ${{ steps.p.outputs.cooked_id }}
+      tag: ${{ steps.p.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {sparse-checkout: .github}
+      - id: p
+        env:
+          EVENT: ${{ github.event_name }}
+          IN_SOURCE: ${{ inputs.source_tag }}
+          IN_REF: ${{ inputs.code_ref }}
+          IN_SHARDS: ${{ inputs.shards }}
+          IN_LIMIT: ${{ inputs.limit }}
+          IN_LOSSLESS: ${{ inputs.lossless }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            source_tag="$IN_SOURCE"; ref="$IN_REF"; shards="$IN_SHARDS"; limit="$IN_LIMIT"; lossless="$IN_LOSSLESS"
+          else
+            r=.github/cook-request.json
+            source_tag=$(jq -r .source_tag $r); ref=$(jq -r .code_ref $r); shards=$(jq -r .shards $r); limit=$(jq -r .limit $r); lossless=$(jq -r .lossless $r)
+          fi
+          code_sha=$(git ls-remote https://github.com/zoog136-hash/- "$ref" | head -1 | cut -f1)
+          [ -n "$code_sha" ] || code_sha="$ref"
+          cooked_id=$(printf '%s|%s|%s|%s|%s' "$source_tag" "$code_sha" "$shards" "$limit" "$lossless" | sha256sum | cut -d' ' -f1)
+          tag="cooked-${source_tag#pack-}-v1"
+          [ "$limit" = "0" ] || tag="$tag-trial"
+          [ "$lossless" = "true" ] && tag="$tag-lossless"
+          matrix=$(python3 -c "import json;print(json.dumps(list(range($shards))))")
+          { echo "source_tag=$source_tag"; echo "code_sha=$code_sha"; echo "shards=$shards"; echo "limit=$limit"; echo "lossless=$lossless"
+            echo "cooked_id=$cooked_id"; echo "tag=$tag"; echo "matrix=$matrix"; } >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+  cook:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    steps:
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p /mnt/w && sudo chown "$USER" /mnt/w
+          df -h / /mnt; nproc; free -g
+      - uses: actions/checkout@v4
+        with:
+          repository: zoog136-hash/-
+          ref: ${{ needs.setup.outputs.code_sha }}
+          path: code
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/
+            /docs/.gdignore
+            !/assets/
+            !/external_map_packs/
+      - name: Install official Godot 4.7.2 editor
+        run: |
+          curl -L --fail --retry 2 -o "$RUNNER_TEMP/godot.zip" https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP"
+          echo "G=$RUNNER_TEMP/Godot_v4.7.2-stable_linux.x86_64" >> "$GITHUB_ENV"
+      - name: Stage and import the game code
+        run: |
+          set -euo pipefail
+          cd code
+          python3 tools/ci_core.py --stage "$RUNNER_TEMP/cook-project" --godot "$G" --logs "$RUNNER_TEMP/stage-logs" --prepare-only > /dev/null
+          mkdir -p "$RUNNER_TEMP/cook-project/tools/cook"
+          cp tools/cook/cook_actors.gd "$RUNNER_TEMP/cook-project/tools/cook/"
+          "$G" --headless --path "$RUNNER_TEMP/cook-project" --editor --import --quit > "$RUNNER_TEMP/import.txt" 2>&1 || (tail -40 "$RUNNER_TEMP/import.txt"; exit 1)
+      - name: Download and extract the original bank and tables
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          cd /mnt/w; mkdir -p dl x
+          gh release view "${{ needs.setup.outputs.source_tag }}" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep '^twilight523-resources-' > names.txt
+          while read -r name; do
+            gh release download "${{ needs.setup.outputs.source_tag }}" -R "$GITHUB_REPOSITORY" -p "$name" -D dl
+            unzip -q -o "dl/$name" 'source523/bank/*' 'source523/tables/*' 'source523/source523_pack.json' -d x || [ $? -eq 11 ]
+            rm -f "dl/$name"
+          done < names.txt
+          du -sh x/source523/* ; df -h /mnt
+      - name: Cook shard ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          extra=""
+          [ "${{ needs.setup.outputs.lossless }}" = "true" ] && extra="--lossless"
+          /usr/bin/time -v "$G" --headless --path "$RUNNER_TEMP/cook-project" --script res://tools/cook/cook_actors.gd -- \
+            --pack=/mnt/w/x/source523 --out=/mnt/w/out --shard=${{ matrix.shard }} --shards=${{ needs.setup.outputs.shards }} \
+            --limit=${{ needs.setup.outputs.limit }} $extra 2>&1 | grep -v '^BOOT_PROGRESS' | tee /mnt/w/cook.txt | tail -200
+          grep -q '^COOK_ACTORS_RESULT ' /mnt/w/cook.txt
+          ! grep -q 'SCRIPT ERROR' /mnt/w/cook.txt
+          du -sh /mnt/w/out
+      - name: Pack and publish part
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          cd /mnt/w
+          part=$(( ${{ matrix.shard }} + 1 )); parts=${{ needs.setup.outputs.shards }}
+          name="twilight523-cooked-${part}of${parts}.zip"
+          python3 "$GITHUB_WORKSPACE/code/tools/cook/pack_cooked_part.py" --cooked out --report out/report-${{ matrix.shard }}.json \
+            --cooked-id ${{ needs.setup.outputs.cooked_id }} --part $part --parts $parts --output "parts/$name" > "part-$part.json"
+          cat "part-$part.json"
+          cp out/report-${{ matrix.shard }}.json "cook-report-$part.json"
+          tag="${{ needs.setup.outputs.tag }}"
+          gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$tag" -R "$GITHUB_REPOSITORY" --target main \
+            --title "변환 액터 팩 $tag" --notes "만드는 중 (cooked id ${{ needs.setup.outputs.cooked_id }})" || true
+          sleep $(( ${{ matrix.shard }} * 3 ))
+          gh release upload "$tag" -R "$GITHUB_REPOSITORY" --clobber "parts/$name" "part-$part.json" "cook-report-$part.json"
+  finalize:
+    needs: [setup, cook]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Manifest and pins
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          tag="${{ needs.setup.outputs.tag }}"
+          mkdir m && cd m
+          gh release download "$tag" -R "$GITHUB_REPOSITORY" -p 'part-*.json' -p 'cook-report-*.json'
+          python3 - "$tag" <<'PY'
+          import json, glob, sys
+          tag = sys.argv[1]
+          parts = sorted((json.load(open(p)) for p in glob.glob('part-*.json')), key=lambda p: p['part'])
+          reports = [json.load(open(p)) for p in sorted(glob.glob('cook-report-*.json'))]
+          totals = {}
+          failures = {}
+          for r in reports:
+              for k, v in r.get('totals', {}).items(): totals[k] = totals.get(k, 0) + v
+              for a, e in r['actors'].items():
+                  if not e.get('ok'): failures[e.get('error', '')] = failures.get(e.get('error', ''), 0) + 1
+          manifest = {'tag': tag, 'cooked_id': '${{ needs.setup.outputs.cooked_id }}', 'source_tag': '${{ needs.setup.outputs.source_tag }}',
+                      'code_sha': '${{ needs.setup.outputs.code_sha }}', 'format': reports[0]['format'], 'engine': reports[0]['engine'],
+                      'source_pack_id': reports[0].get('source_pack_id'), 'bank_manifest_sha256': reports[0].get('bank_manifest_sha256'),
+                      'tables_sha256': reports[0].get('tables_sha256'), 'parts': parts, 'totals': totals,
+                      'failure_reasons': dict(sorted(failures.items(), key=lambda kv: -kv[1])),
+                      'shard_msec': [r.get('msec') for r in reports], 'part_bytes_total': sum(p['bytes'] for p in parts)}
+          json.dump(manifest, open('cooked_manifest.json', 'w'), indent=1)
+          print(json.dumps({k: v for k, v in manifest.items() if k != 'parts'}, indent=1))
+          print('# scripts/boot/cooked_actor_pins.gd')
+          print('const COOKED_ID := "%s"' % manifest['cooked_id'])
+          print('const PARTS := {')
+          for p in parts: print('\t"%s": [%d, %d, "%s"],' % (p['sha256'], p['part'], p['parts'], p['file']))
+          print('}')
+          PY
+          gh release upload "$tag" -R "$GITHUB_REPOSITORY" --clobber cooked_manifest.json
+          gh release edit "$tag" -R "$GITHUB_REPOSITORY" --notes "TWILIGHT 변환(쿡) 액터 팩. 원본 팩 ${{ needs.setup.outputs.source_tag }}에서 게임 코드 ${{ needs.setup.outputs.code_sha }}의 실제 렌더러로 미리 합성. twilight523-cooked-*.zip 조각을 모두 앱 설치 화면(설정 → 추가 리소스)에서 선택하세요. 각 조각 SHA-256은 게임 코드(cooked_actor_pins.gd)에 고정되어 설치 때 확인됩니다. 상세: cooked_manifest.json"
