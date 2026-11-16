@@ -2,7 +2,7 @@ extends Node
 ## Diagnostic driver (Twm diag workflow only; never in the game repo).
 ## Presses through the title, enters the game, keeps the world running for
 ## PLAY_SECONDS and prints timestamps so SCRIPT ERROR lines can be placed.
-const PLAY_SECONDS: float = 1200.0
+const PLAY_SECONDS: float = 900.0
 const QA = preload("res://tests/qa_class_selection.gd")
 var started: int = Time.get_ticks_msec()
 var world_at: int = -1
@@ -12,6 +12,44 @@ var pressed_title: int = 0
 var _sweep_started: int = 0
 var _swept: bool = false
 var _spawned: bool = false
+var _last_hop: int = 0
+var _hop_index: int = 0
+
+## Moves the player into the next populated source region so the field
+## population spawns real monsters through Monster.setup (as on the phone).
+func _hop(world: Node) -> void:
+	var population: Variant = world.get("field_population")
+	if population == null:
+		_say("hop: no population")
+		return
+	var field: Variant = population.get("field")
+	var slots: Variant = population.get("slots")
+	if field == null or not slots is Array or (slots as Array).is_empty():
+		_say("hop: no slots (field=%s)" % str(field))
+		return
+	var regions: Array = []
+	var seen: Dictionary = {}
+	for slot: Dictionary in slots:
+		var region: Dictionary = slot.get("region", {})
+		if not region.get("source_rect") is Rect2i or region.get("monster_types", []).is_empty(): continue
+		var key: String = str(region.source_rect)
+		if seen.has(key): continue
+		seen[key] = true
+		regions.append(region)
+	if regions.is_empty():
+		_say("hop: no regions among %d slots" % (slots as Array).size())
+		return
+	var region: Dictionary = regions[_hop_index % regions.size()]
+	_hop_index += 1
+	var rect: Rect2i = region.source_rect
+	var target: Vector2 = field.coordinates.to_world(Vector2(rect.get_center()))
+	var player: Node2D = world.get("player")
+	var alive: int = 0
+	for slot: Dictionary in slots:
+		var m: Variant = slot.get("monster")
+		if is_instance_valid(m) and not m.dead: alive += 1
+	_say("hop %d/%d -> %s types=%s (slots=%d alive=%d)" % [_hop_index, regions.size(), str(rect), str(region.get("monster_types", []).slice(0, 3)), (slots as Array).size(), alive])
+	player.global_position = target
 const BASE508 = preload("res://scripts/lineagem_base508.gd")
 
 ## Every admitted 523 NPC through the same projection Monster.setup runs on a
@@ -92,15 +130,9 @@ func _process(_delta: float) -> void:
 			var loading: Node = _find_loading(get_tree().root)
 			var stage: String = "" if loading == null else str(loading.get("_status_text") if loading.get("_status_text") != null else "") + " awaiting=" + str(loading.get("_awaiting_title")) + " running=" + str(loading.get("_running"))
 			_say("tick paused=%s monsters=%d fps=%d loading=%s" % [get_tree().paused, monsters, Engine.get_frames_per_second(), stage])
-		if entered and not _swept and not get_tree().paused and now - _sweep_started > 5000:
-			_swept = true
-			_sweep(scene)
-		if entered and _swept and not _spawned and now - _sweep_started > 15000:
-			_spawned = true
-			if scene.has_method("_spawn_monsters"):
-				_say("spawning 12 monsters via world._spawn_monsters")
-				scene.call("_spawn_monsters", 12)
-				_say("spawn call returned")
+		if entered and not get_tree().paused and now - _sweep_started > 5000 and now - _last_hop > 25000:
+			_last_hop = now
+			_hop(scene)
 		if now - world_at >= int(PLAY_SECONDS * 1000.0):
 			_say("DIAG_DONE survived %.0fs in world" % PLAY_SECONDS)
 			get_tree().quit(0)
