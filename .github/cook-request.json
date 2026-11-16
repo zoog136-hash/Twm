@@ -1,1 +1,1 @@
-{"source_tag": "pack-63fb1355", "code_ref": "perf/cooked-actor-pack", "shards": 3, "limit": 10, "lossless": false, "kinds": "class,transform"}
+{"source_tag": "pack-63fb1355", "code_ref": "perf/cooked-actor-pack", "shards": 12, "limit": 0, "lossless": false, "kinds": "npc,class,transform,effect"}
