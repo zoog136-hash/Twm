@@ -61,7 +61,7 @@ jobs:
           cooked_id=$(printf '%s|%s|%s|%s|%s|%s' "$source_tag" "$code_sha" "$shards" "$limit" "$lossless" "$kinds" | sha256sum | cut -d' ' -f1)
           tag="cooked-${source_tag#pack-}-v2"
           [ "$limit" = "0" ] || tag="$tag-trial"
-          [ "$lossless" = "true" ] && tag="$tag-lossless"
+          [ "$lossless" = "false" ] && tag="$tag-block"
           matrix=$(python3 -c "import json;print(json.dumps(list(range($shards))))")
           { echo "source_tag=$source_tag"; echo "code_sha=$code_sha"; echo "shards=$shards"; echo "limit=$limit"; echo "lossless=$lossless"; echo "kinds=$kinds"
             echo "cooked_id=$cooked_id"; echo "tag=$tag"; echo "matrix=$matrix"; } >> "$GITHUB_OUTPUT"
@@ -105,6 +105,9 @@ jobs:
           python3 tools/ci_core.py --stage "$RUNNER_TEMP/cook-project" --godot "$G" --logs "$RUNNER_TEMP/stage-logs" --prepare-only > /dev/null
           mkdir -p "$RUNNER_TEMP/cook-project/tools/cook"
           cp tools/cook/cook_actors.gd "$RUNNER_TEMP/cook-project/tools/cook/"
+          # Cook-only: strongest zstd for the cooked files (decoding speed is
+          # the same; measured -30% vs level 3 on cooked RGBA8 pages).
+          printf '[compression]\n\nformats/zstd/compression_level=19\nformats/zstd/long_distance_matching=true\n' > "$RUNNER_TEMP/cook-project/override.cfg"
           "$G" --headless --path "$RUNNER_TEMP/cook-project" --editor --import --quit > "$RUNNER_TEMP/import.txt" 2>&1 || (tail -40 "$RUNNER_TEMP/import.txt"; exit 1)
       - name: Download and extract the original bank and tables
         env: {GH_TOKEN: '${{ github.token }}'}
