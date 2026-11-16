@@ -14,7 +14,7 @@ permissions:
 jobs:
   play:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -100,8 +100,8 @@ jobs:
           ls -la "$U/$dir"
           args="--path $P -- --source523-pack=/mnt/w/x/source523"
           case "${{ matrix.mode }}" in
-            xvfb-*) timeout 2500 xvfb-run -a -s "-screen 0 1280x720x24" "$G" --rendering-method gl_compatibility --rendering-driver opengl3 --resolution 1280x720 $args > /mnt/w/play.txt 2>&1;;
-            *) timeout 2500 "$G" --headless $args > /mnt/w/play.txt 2>&1;;
+            xvfb-*) timeout 4000 xvfb-run -a -s "-screen 0 1280x720x24" "$G" --rendering-method gl_compatibility --rendering-driver opengl3 --resolution 1280x720 $args > /mnt/w/play.txt 2>&1;;
+            *) timeout 4000 "$G" --headless $args > /mnt/w/play.txt 2>&1;;
           esac
           code=$?
           echo "exit=$code"

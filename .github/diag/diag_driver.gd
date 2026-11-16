@@ -2,7 +2,7 @@ extends Node
 ## Diagnostic driver (Twm diag workflow only; never in the game repo).
 ## Presses through the title, enters the game, keeps the world running for
 ## PLAY_SECONDS and prints timestamps so SCRIPT ERROR lines can be placed.
-const PLAY_SECONDS: float = 150.0
+const PLAY_SECONDS: float = 1200.0
 const QA = preload("res://tests/qa_class_selection.gd")
 var started: int = Time.get_ticks_msec()
 var world_at: int = -1
@@ -22,8 +22,16 @@ func _sweep(world: Node) -> void:
 	if catalog == null:
 		_say("sweep: no catalog")
 		return
-	var registry: Variant = catalog.get("admitted_source_identities")
-	var ids: Array = (registry as Dictionary).keys() if registry is Dictionary else []
+	var DEFS = load("res://scripts/resources/current523_definition_rows.gd")
+	var seen: Dictionary = {}
+	var ids: Array = []
+	for row: Dictionary in DEFS.rows("NpcSpawnPackNpcClassView"):
+		var id: int = int(row.get("NpcClassID", -1))
+		if id > 0 and not seen.has(id):
+			seen[id] = true
+			ids.append(id)
+	_say("sweep: %d spawnable npc ids" % ids.size())
+	var limit_until: int = Time.get_ticks_msec() + 900 * 1000
 	_say("sweep: %d admitted npc ids, source_available=%s mode=%s" % [ids.size(), str(catalog.get("source_available")), str(catalog.get("source_mode"))])
 	var done: int = 0
 	for key: Variant in ids:
@@ -35,6 +43,12 @@ func _sweep(world: Node) -> void:
 		var definition: Variant = catalog.npc_definition(npc_id)
 		if not definition is Dictionary: _say("sweep: npc %d definition %s" % [npc_id, type_string(typeof(definition))])
 		done += 1
+		if done % 50 == 0:
+			var admitted: Variant = catalog.get("admitted_source_identities")
+			_say("sweep progress %d admitted=%d error=%s" % [done, (admitted as Dictionary).size() if admitted is Dictionary else -1, str(catalog.get("error"))])
+		if Time.get_ticks_msec() > limit_until:
+			_say("sweep time budget reached")
+			break
 	_say("sweep done %d" % done)
 
 func _init() -> void:
