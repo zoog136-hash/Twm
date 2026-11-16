@@ -122,46 +122,56 @@ jobs:
         run: |
           set -euo pipefail
           extra=""
-          [ "${{ needs.setup.outputs.lossless }}" = "true" ] && extra="--lossless"
+          [ "${{ needs.setup.outputs.lossless }}" = "false" ] && extra="--block"
           /usr/bin/time -v "$G" --headless --path "$RUNNER_TEMP/cook-project" --script res://tools/cook/cook_actors.gd -- \
             --pack=/mnt/w/x/source523 --out=/mnt/w/out --shard=${{ matrix.shard }} --shards=${{ needs.setup.outputs.shards }} \
             --limit=${{ needs.setup.outputs.limit }} --kinds=${{ needs.setup.outputs.kinds }} $extra 2>&1 | grep -v '^BOOT_PROGRESS' | tee /mnt/w/cook.txt | tail -200
           grep -q '^COOK_ACTORS_RESULT ' /mnt/w/cook.txt
           ! grep -q 'SCRIPT ERROR' /mnt/w/cook.txt
           du -sh /mnt/w/out
-      - name: Pack and publish part
+      - name: Upload shard output (work release)
         env: {GH_TOKEN: '${{ github.token }}'}
         run: |
           set -euo pipefail
           cd /mnt/w
-          part=$(( ${{ matrix.shard }} + 1 )); parts=${{ needs.setup.outputs.shards }}
-          name="twilight523-cooked-${part}of${parts}.zip"
-          python3 "$GITHUB_WORKSPACE/code/tools/cook/pack_cooked_part.py" --cooked out --report out/report-${{ matrix.shard }}.json \
-            --cooked-id ${{ needs.setup.outputs.cooked_id }} --part $part --parts $parts --output "parts/$name" > "part-$part.json"
-          cat "part-$part.json"
-          cp out/report-${{ matrix.shard }}.json "cook-report-$part.json"
-          tag="${{ needs.setup.outputs.tag }}"
-          gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$tag" -R "$GITHUB_REPOSITORY" --target main \
-            --title "변환 액터 팩 $tag" --notes "만드는 중 (cooked id ${{ needs.setup.outputs.cooked_id }})" || true
+          work="${{ needs.setup.outputs.tag }}-work"
+          tar -cf "shard-${{ matrix.shard }}.tar" -C out .
+          ls -la "shard-${{ matrix.shard }}.tar"
+          gh release view "$work" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$work" -R "$GITHUB_REPOSITORY" --target main \
+            --title "쿡 작업 중간물 $work (자동 삭제)" --notes "finalize 단계가 조각을 다시 묶은 뒤 지웁니다." || true
           sleep $(( ${{ matrix.shard }} * 3 ))
-          gh release upload "$tag" -R "$GITHUB_REPOSITORY" --clobber "parts/$name" "part-$part.json" "cook-report-$part.json"
+          gh release upload "$work" -R "$GITHUB_REPOSITORY" --clobber "shard-${{ matrix.shard }}.tar"
   finalize:
     needs: [setup, cook]
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
-      - name: Manifest and pins
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p /mnt/w && sudo chown "$USER" /mnt/w
+      - uses: actions/checkout@v4
+        with:
+          repository: zoog136-hash/-
+          ref: ${{ needs.setup.outputs.code_sha }}
+          path: code
+          persist-credentials: false
+          sparse-checkout: tools/cook
+      - name: Repack into the fewest parts, manifest, pins
         env: {GH_TOKEN: '${{ github.token }}'}
         run: |
           set -euo pipefail
-          tag="${{ needs.setup.outputs.tag }}"
-          mkdir m && cd m
-          gh release download "$tag" -R "$GITHUB_REPOSITORY" -p 'part-*.json' -p 'cook-report-*.json'
+          tag="${{ needs.setup.outputs.tag }}"; work="$tag-work"
+          cd /mnt/w; mkdir -p dl shards m
+          gh release download "$work" -R "$GITHUB_REPOSITORY" -p 'shard-*.tar' -D dl
+          args=""
+          for t in dl/shard-*.tar; do n=$(basename "$t" .tar); mkdir -p "shards/$n"; tar -xf "$t" -C "shards/$n"; rm -f "$t"; args="$args --cooked shards/$n"; cp "shards/$n"/report-*.json m/; done
+          cd m
           python3 - "$tag" <<'PY'
           import json, glob, sys
           tag = sys.argv[1]
-          parts = sorted((json.load(open(p)) for p in glob.glob('part-*.json')), key=lambda p: p['part'])
-          reports = [json.load(open(p)) for p in sorted(glob.glob('cook-report-*.json'))]
-          totals, failures, filters, kinds, verification, effects = {}, {}, {}, {}, {}, {}
+          reports = [json.load(open(p)) for p in sorted(glob.glob('report-*.json'))]
+          totals, failures, kinds, verification = {}, {}, {}, {}
           psnr_min, max_error = 99.0, 0
           for r in reports:
               for k, v in r.get('totals', {}).items():
@@ -176,24 +186,43 @@ jobs:
               for kind, t in r.get('by_kind', {}).items():
                   d = kinds.setdefault(kind, {})
                   for k, v in t.items(): d[k] = d.get(k, 0) + v
-          filters = reports[0].get('job_filters', {})
-          effects = {'rejections': reports[0].get('effect_selection_rejections', {}), 'domain_index': reports[0].get('effect_domain_index', {})}
+          examples = {}
+          for r in reports: examples.update(r.get('failure_examples', {}))
           totals['block_psnr_min'] = psnr_min
           totals['block_max_error'] = max_error
           manifest = {'tag': tag, 'cooked_id': '${{ needs.setup.outputs.cooked_id }}', 'source_tag': '${{ needs.setup.outputs.source_tag }}',
                       'code_sha': '${{ needs.setup.outputs.code_sha }}', 'format': reports[0]['format'], 'engine': reports[0]['engine'],
-                      'source_pack_id': reports[0].get('source_pack_id'), 'bank_manifest_sha256': reports[0].get('bank_manifest_sha256'),
-                      'tables_sha256': reports[0].get('tables_sha256'), 'parts': parts, 'totals': totals, 'by_kind': kinds,
-                      'job_counts': reports[0].get('job_counts'), 'bundles_total': reports[0].get('bundles_total'), 'job_filters': filters,
-                      'effects': effects, 'failure_reasons': dict(sorted(failures.items(), key=lambda kv: -kv[1])), 'verification': verification,
-                      'shard_msec': [r.get('msec') for r in reports], 'part_bytes_total': sum(p['bytes'] for p in parts)}
+                      'lossless': reports[0].get('lossless'), 'source_pack_id': reports[0].get('source_pack_id'),
+                      'bank_manifest_sha256': reports[0].get('bank_manifest_sha256'), 'tables_sha256': reports[0].get('tables_sha256'),
+                      'totals': totals, 'by_kind': kinds, 'job_counts': reports[0].get('job_counts'), 'bundles_total': reports[0].get('bundles_total'),
+                      'job_filters': reports[0].get('job_filters', {}),
+                      'effects': {'rejections': reports[0].get('effect_selection_rejections', {}), 'domain_index': reports[0].get('effect_domain_index', {})},
+                      'failure_reasons': dict(sorted(failures.items(), key=lambda kv: -kv[1])), 'failure_examples': examples,
+                      'verification': verification, 'shard_msec': [r.get('msec') for r in reports]}
           json.dump(manifest, open('cooked_manifest.json', 'w'), indent=1)
-          print(json.dumps({k: v for k, v in manifest.items() if k != 'parts'}, indent=1))
+          print(json.dumps(manifest, indent=1)[:6000])
+          PY
+          cd /mnt/w
+          fmt=$(python3 -c "import json;print(json.load(open('m/cooked_manifest.json'))['format'])")
+          python3 code/tools/cook/pack_cooked_part.py $args --format "$fmt" --cooked-id ${{ needs.setup.outputs.cooked_id }} \
+            --output parts --extra m/cooked_manifest.json > parts.jsonl
+          cat parts.jsonl
+          python3 - <<'PY'
+          import json
+          parts = [json.loads(l) for l in open('/mnt/w/parts.jsonl')]
+          m = json.load(open('/mnt/w/m/cooked_manifest.json'))
+          m['parts'] = parts
+          m['part_bytes_total'] = sum(p['bytes'] for p in parts)
+          json.dump(m, open('/mnt/w/m/cooked_manifest.json', 'w'), indent=1)
           print('# scripts/boot/cooked_actor_pins.gd')
-          print('const COOKED_ID := "%s"' % manifest['cooked_id'])
+          print('const COOKED_ID := "%s"' % m['cooked_id'])
           print('const PARTS := {')
           for p in parts: print('\t"%s": [%d, %d, "%s"],' % (p['sha256'], p['part'], p['parts'], p['file']))
           print('}')
+          print('total bytes', m['part_bytes_total'])
           PY
-          gh release upload "$tag" -R "$GITHUB_REPOSITORY" --clobber cooked_manifest.json
-          gh release edit "$tag" -R "$GITHUB_REPOSITORY" --notes "TWILIGHT 변환(쿡) 액터 팩. 원본 팩 ${{ needs.setup.outputs.source_tag }}에서 게임 코드 ${{ needs.setup.outputs.code_sha }}의 실제 렌더러로 미리 합성. twilight523-cooked-*.zip 조각을 모두 앱 설치 화면(설정 → 추가 리소스)에서 선택하세요. 각 조각 SHA-256은 게임 코드(cooked_actor_pins.gd)에 고정되어 설치 때 확인됩니다. 상세: cooked_manifest.json"
+          gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && gh release delete "$tag" -R "$GITHUB_REPOSITORY" -y || true
+          gh release create "$tag" -R "$GITHUB_REPOSITORY" --target main --title "변환 액터 팩 $tag" \
+            --notes "TWILIGHT 변환(쿡) 액터 팩. 원본 팩 ${{ needs.setup.outputs.source_tag }}(같은 내용의 pack-b2162b06도 호환: 뱅크 매니페스트 SHA 기준)에서 게임 코드 ${{ needs.setup.outputs.code_sha }}의 실제 렌더러로 미리 합성. twilight523-cooked-*.zip 조각을 모두 받아 앱 설정 → '추가 리소스(.zip) 설치·업데이트'에서 한꺼번에 선택하세요. 각 조각 SHA-256은 게임 코드(cooked_actor_pins.gd)에 고정되어 설치 때 확인됩니다. cooked_manifest.json은 기록용(설치에 불필요, 1번 조각에도 포함)."
+          gh release upload "$tag" -R "$GITHUB_REPOSITORY" parts/twilight523-cooked-*.zip m/cooked_manifest.json
+          gh release delete "$work" -R "$GITHUB_REPOSITORY" -y --cleanup-tag || true
