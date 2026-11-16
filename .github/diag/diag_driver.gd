@@ -38,6 +38,8 @@ func _process(_delta: float) -> void:
 		if world_at < 0:
 			world_at = now
 			_say("world scene ready: " + str(scene.scene_file_path))
+		if scene.has_method("loading_readiness") and now - last_tick >= 1000:
+			_say("readiness " + JSON.stringify(scene.call("loading_readiness")) + " aden_play=" + str(scene.get("current523_aden_play_active")) + " problem=" + str(scene.get("current523_aden_play_problem")) + " field_map=" + str(scene.get("field_map")))
 		if not entered and not get_tree().paused:
 			entered = QA.enter_game(scene)
 			if entered: _say("entered game, class=" + str(scene.get("job_class")))
