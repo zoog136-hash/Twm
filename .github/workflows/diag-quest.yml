@@ -1,0 +1,46 @@
+name: Diag - quest payload against the real 523 tables
+on:
+  push:
+    branches: ['diag/**']
+    paths: ['.github/workflows/diag-quest.yml', '.github/diag/quest_probe.gd']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  quest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: [main, fix/quest-payload, 9090905a5c927e1bb5f71805a725563fa25af813]
+    steps:
+      - uses: actions/checkout@v4
+        with: {sparse-checkout: .github}
+      - uses: actions/checkout@v4
+        with:
+          repository: zoog136-hash/-
+          ref: ${{ matrix.ref }}
+          path: code
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/
+            /data/
+            /project.godot
+            /icon.svg
+      - name: Tables from pack part 1
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          gh release download pack-63fb1355 -R "$GITHUB_REPOSITORY" -p 'twilight523-resources-1of8.zip' -D /tmp/p
+          unzip -q /tmp/p/twilight523-resources-1of8.zip 'source523/tables/*' -d /tmp/x
+          ls -la /tmp/x/source523/tables
+      - name: Godot and probe
+        run: |
+          curl -fL --retry 3 -o /tmp/g.zip https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
+          unzip -q /tmp/g.zip -d /tmp
+          cp .github/diag/quest_probe.gd code/quest_probe.gd
+          cd code
+          timeout 900 /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path . --editor --import --quit > /tmp/i.txt 2>&1 || tail -20 /tmp/i.txt
+          zip=$(ls /tmp/x/source523/tables/*.zip | head -1); echo "zip=$zip"
+          TWILIGHT_PATCH523_CONTENT="$zip" timeout 900 /tmp/Godot_v4.7.2-stable_linux.x86_64 --headless --path . --script res://quest_probe.gd 2>&1 | grep -a "QPROBE\|SCRIPT ERROR" | head
