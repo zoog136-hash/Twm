@@ -151,7 +151,7 @@ jobs:
           }
           timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/boot_cold.txt 2>&1
           echo "== cold"; report /mnt/w/boot_cold.txt
-          echo "# diag: simulated update" >> "$P/scripts/ui/frozen_exchange_panel.gd"
+          printf "\nconst _DIAG_SIMULATED_UPDATE: int = 1\n" >> "$P/scripts/ui/frozen_exchange_panel.gd"; tail -2 "$P/scripts/ui/frozen_exchange_panel.gd"
           timeout 2400 "$G" --headless --path "$P" --export-pack "LinuxDiag" /mnt/w/game/twilight.pck > /mnt/w/export2.txt 2>&1 || tail -30 /mnt/w/export2.txt
           timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/boot_update.txt 2>&1
           echo "== after update"; report /mnt/w/boot_update.txt
