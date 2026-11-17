@@ -56,6 +56,7 @@ jobs:
           set -euo pipefail
           cd code; git log -1 --format='code %H %s'
           P="$RUNNER_TEMP/game"; mkdir -p "$P"; cp -a . "$P"/; rm -rf "$P/.git"
+          echo "P=$P" >> "$GITHUB_ENV"
           mkdir -p "$P/diag"; cp "$GITHUB_WORKSPACE/.github/diag/diag_driver.gd" "$GITHUB_WORKSPACE/.github/diag/diag_qa.gd" "$P/diag/"
           python3 - "$P" <<'PY'
           import re, sys
@@ -123,35 +124,36 @@ jobs:
             fi
           done < names.txt
           df -h /mnt
-      - name: Boot twice (cold, then warm caches as on every later phone start)
+      - name: Boot cold, simulate an OTA update (one unrelated script line), boot again
         run: |
           set +e
           cd /mnt/w/game
-          for run in cold warm; do
-            start=$(date +%s)
-            timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/boot_$run.txt 2>&1
-            echo "== $run exit=$? wall=$(( $(date +%s) - start ))s"
-            grep -a 'world scene ready\|DIAG_DONE' /mnt/w/boot_$run.txt | head -3
-            python3 - /mnt/w/boot_$run.txt <<'PY'
+          report() {
+            python3 - "$1" <<'PY'
           import re, sys
-          rows = []
-          first = last = None
+          agg = {}; ready = None; misses = []
           for line in open(sys.argv[1], errors='replace'):
               if not line.startswith('BOOT_PROGRESS'): continue
-              t = re.search(r' t=(\d+)', line)
-              if t:
-                  t = int(t.group(1)); first = t if first is None else first; last = t
-              m = re.search(r' ev=end stage=(\S+)(?: table=(\S+))?.*? ms=(\d+)', line)
-              if m: rows.append((int(m.group(3)), m.group(1) + (':' + m.group(2) if m.group(2) else '')))
-              if ' ev=loading_ready' in line: print('loading_ready at', t, 'ms')
-          agg = {}
-          for ms, name in rows:
-              key = name.split(':')[0]
-              agg.setdefault(key, [0, 0]); agg[key][0] += ms; agg[key][1] += 1
-          print('stage totals (ms, count):')
-          for k, v in sorted(agg.items(), key=lambda kv: -kv[1][0])[:25]: print(f'  {v[0]:>8} {v[1]:>5}  {k}')
-          print('largest single steps:')
-          for ms, name in sorted(rows, reverse=True)[:25]: print(f'  {ms:>8}  {name}')
+              if ' ev=loading_ready' in line: ready = re.search(r' t=(\d+)', line).group(1)
+              m = re.search(r' ev=end stage=(\S+).*? ms=(\d+)', line)
+              if m: agg.setdefault(m.group(1), [0, 0]); agg[m.group(1)][0] += int(m.group(2)); agg[m.group(1)][1] += 1
+              c = re.search(r' ev=cache stage=(\S+).*? result=miss reason=(\S+)', line)
+              if c: misses.append((c.group(1), c.group(2)))
+          print('loading_ready ms', ready)
+          for k, v in sorted(agg.items(), key=lambda kv: -kv[1][0])[:22]: print(f'  {v[0]:>8} {v[1]:>4}  {k}')
+          kinds = {}
+          for name, reason in misses:
+              base = re.sub(r'_[A-Z][A-Za-z0-9]*(_[A-Za-z0-9]+)?$', '_<table>', name)
+              kinds.setdefault((base, reason), 0); kinds[(base, reason)] += 1
+          print('cache misses:', len(misses))
+          for (base, reason), n in sorted(kinds.items(), key=lambda kv: -kv[1]): print(f'  {n:>4}  {base}  ({reason})')
           PY
-            grep -a 'ev=cache' /mnt/w/boot_$run.txt | grep -o 'result=[a-z_]*' | sort | uniq -c
-          done
+          }
+          timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/boot_cold.txt 2>&1
+          echo "== cold"; report /mnt/w/boot_cold.txt
+          echo "# diag: simulated update" >> "$P/scripts/ui/frozen_exchange_panel.gd"
+          timeout 2400 "$G" --headless --path "$P" --export-pack "LinuxDiag" /mnt/w/game/twilight.pck > /mnt/w/export2.txt 2>&1 || tail -30 /mnt/w/export2.txt
+          timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/boot_update.txt 2>&1
+          echo "== after update"; report /mnt/w/boot_update.txt
+          timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/boot_warm.txt 2>&1
+          echo "== warm (no change)"; report /mnt/w/boot_warm.txt
