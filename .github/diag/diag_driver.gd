@@ -2,7 +2,7 @@ extends Node
 ## Diagnostic driver (Twm diag workflow only; never in the game repo).
 ## Presses through the title, enters the game, keeps the world running for
 ## PLAY_SECONDS and prints timestamps so SCRIPT ERROR lines can be placed.
-const PLAY_SECONDS: float = 1700.0
+const PLAY_SECONDS: float = 90.0
 const QA = preload("res://diag/diag_qa.gd")
 var started: int = Time.get_ticks_msec()
 var world_at: int = -1
@@ -14,6 +14,39 @@ var _swept: bool = false
 var _spawned: bool = false
 var _last_hop: int = 0
 var _spawn_done: bool = false
+## Menu -> exchange, the way the phone player reached it (2026-11-17 523.607:
+## the release APK closed the moment the exchange was entered).
+const UI_STEPS: Array = ["menu", "exchange", "select", "select2", "close", "exchange", "select"]
+var _ui_step: int = 0
+var _ui_last: int = 0
+
+func _find_hud(n: Node) -> Node:
+	if n.has_method("_navigate") and n.has_method("toggle_menu"): return n
+	for c: Node in n.get_children():
+		var f: Node = _find_hud(c)
+		if f != null: return f
+	return null
+
+func _ui(world: Node) -> void:
+	var hud: Node = _find_hud(world)
+	var step: String = UI_STEPS[_ui_step]
+	_ui_step += 1
+	printerr("DIAG_UI begin %s hud=%s" % [step, str(hud)])
+	match step:
+		"menu": hud.call("toggle_menu")
+		"exchange": hud.call("_navigate", "exchange")
+		"select", "select2":
+			var panel: Node = world.find_child("FrozenExchangePanel", true, false)
+			var listing: ItemList = panel.find_child("ExchangeListings", true, false) as ItemList if panel != null else null
+			printerr("DIAG_UI panel=%s items=%d" % [str(panel), listing.item_count if listing != null else -1])
+			if listing != null and listing.item_count > 0:
+				var index: int = 0 if step == "select" else mini(5, listing.item_count - 1)
+				listing.select(index)
+				listing.item_selected.emit(index)
+				var review: Button = panel.find_child("ExchangeReview", true, false) as Button
+				if review != null and not review.disabled: review.pressed.emit()
+		"close": hud.call("_close_workspace")
+	printerr("DIAG_UI end %s" % step)
 var _spawn_regions: Array = []
 var _spawn_index: int = 0
 var _spawn_tries: int = 0
@@ -191,8 +224,9 @@ func _process(_delta: float) -> void:
 			var loading: Node = _find_loading(get_tree().root)
 			var stage: String = "" if loading == null else str(loading.get("_status_text") if loading.get("_status_text") != null else "") + " awaiting=" + str(loading.get("_awaiting_title")) + " running=" + str(loading.get("_running"))
 			_say("tick paused=%s monsters=%d fps=%d loading=%s" % [get_tree().paused, monsters, Engine.get_frames_per_second(), stage])
-		if entered and not get_tree().paused and now - _sweep_started > 5000 and not _spawn_done:
-			_spawn_step(scene)
+		if entered and not get_tree().paused and now - _sweep_started > 8000 and _ui_step < UI_STEPS.size() and now - _ui_last > 6000:
+			_ui_last = now
+			_ui(scene)
 		if now - world_at >= int(PLAY_SECONDS * 1000.0):
 			_say("DIAG_DONE survived %.0fs in world" % PLAY_SECONDS)
 			get_tree().quit(0)

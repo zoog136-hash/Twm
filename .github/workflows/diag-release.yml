@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        template: [release]
+        template: [release, debug]
     steps:
       - name: Free disk
         run: |
@@ -128,11 +128,12 @@ jobs:
           set +e
           ulimit -c 0
           cd /mnt/w/game
-          timeout 3300 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play.txt 2>&1
+          timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play.txt 2>&1
           code=$?
           echo "exit=$code"
           echo "----- crash / script errors"
           grep -n -B6 -A40 'Program crashed\|signal 11\|SCRIPT ERROR\|handle_crash\|Segmentation' /mnt/w/play.txt | grep -v '^.*BOOT_PROGRESS.*ev=alive' | cut -c1-300 | head -200
+          echo "----- ui"; grep -a 'DIAG_UI' /mnt/w/play.txt
           echo "----- spawn"
           grep -c DIAG_SPAWN_OK /mnt/w/play.txt; grep -c DIAG_SPAWN_GIVEUP /mnt/w/play.txt; grep 'DIAG_SPAWN' /mnt/w/play.txt | tail -12
           grep 'DIAG_SPAWN_GIVEUP' /mnt/w/play.txt | awk '{print $NF}' | sort | uniq -c
