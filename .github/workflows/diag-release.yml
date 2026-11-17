@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zoog136-hash/-
-          ref: main
+          ref: perf/rules-content-key
           path: code
           persist-credentials: false
           sparse-checkout-cone-mode: false
