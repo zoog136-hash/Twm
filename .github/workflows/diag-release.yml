@@ -1,0 +1,141 @@
+name: Diag - release-template run of the real 523 pack
+# Diagnostic only. The phone's release APK dies natively (SIGSEGV,
+# Array::size() on null, GDScript validated index) 3-5 s after loading, at the
+# first NPC's special-resistance projection; the debug template does not.
+# This exports the same project with the official Linux *release* template
+# and runs the same NPC projection sweep, printing the NPC id before each one
+# (stderr, unbuffered) so a native crash names its input.
+on:
+  push:
+    branches: ['diag/**']
+    paths: ['.github/workflows/diag-release.yml', '.github/diag/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        template: [release, debug]
+    steps:
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p /mnt/w && sudo chown "$USER" /mnt/w
+      - uses: actions/checkout@v4
+        with: {sparse-checkout: .github}
+      - uses: actions/checkout@v4
+        with:
+          repository: zoog136-hash/-
+          ref: main
+          path: code
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/
+            /docs/.gdignore
+            !/external_map_packs/
+      - name: Godot editor + export templates
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o "$RUNNER_TEMP/godot.zip" https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP"
+          echo "G=$RUNNER_TEMP/Godot_v4.7.2-stable_linux.x86_64" >> "$GITHUB_ENV"
+          curl -fL --retry 3 -o /mnt/w/t.tpz https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz
+          mkdir -p /mnt/w/tu "$HOME/.local/share/godot/export_templates/4.7.2.stable"
+          unzip -q /mnt/w/t.tpz 'templates/linux_*x86_64*' 'templates/version.txt' -d /mnt/w/tu
+          cp -a /mnt/w/tu/templates/. "$HOME/.local/share/godot/export_templates/4.7.2.stable/"
+          rm -rf /mnt/w/t.tpz /mnt/w/tu
+          ls "$HOME/.local/share/godot/export_templates/4.7.2.stable/"
+      - name: Stage, import and export (${{ matrix.template }} template)
+        run: |
+          set -euo pipefail
+          cd code; git log -1 --format='code %H %s'
+          P="$RUNNER_TEMP/game"; mkdir -p "$P"; cp -a . "$P"/; rm -rf "$P/.git"
+          mkdir -p "$P/diag"; cp "$GITHUB_WORKSPACE/.github/diag/diag_driver.gd" "$GITHUB_WORKSPACE/.github/diag/diag_qa.gd" "$P/diag/"
+          python3 - "$P" <<'PY'
+          import re, sys
+          root = sys.argv[1]
+          p = root + '/project.godot'; s = open(p).read()
+          s = s.replace('[autoload]\n', '[autoload]\n\nDiagDriver="*res://diag/diag_driver.gd"\n', 1)
+          open(p, 'w').write(s)
+          e = root + '/export_presets.cfg'; s = open(e).read()
+          head = s.split('[preset.0.options]')[0]
+          inc = re.search(r'include_filter="(.*)"', head).group(1)
+          exc = re.search(r'exclude_filter="(.*)"', head).group(1)
+          n = len(re.findall(r'^\[preset\.\d+\]$', s, re.M))
+          s += f'''
+          [preset.{n}]
+
+          name="LinuxDiag"
+          platform="Linux"
+          runnable=false
+          advanced_options=false
+          dedicated_server=false
+          custom_features="twilight_playtest"
+          export_filter="all_resources"
+          include_filter="{inc}"
+          exclude_filter="{exc}"
+          export_path=""
+          patches=PackedStringArray()
+          encryption_include_filters=""
+          encryption_exclude_filters=""
+          encrypt_pck=false
+          encrypt_directory=false
+
+          [preset.{n}.options]
+
+          binary_format/embed_pck=false
+          binary_format/architecture="x86_64"
+          '''.replace('\n          ', '\n')
+          open(e, 'w').write(s)
+          PY
+          tail -25 "$P/export_presets.cfg" | cut -c1-120
+          timeout 1800 "$G" --headless --path "$P" --editor --import --quit > /mnt/w/import.txt 2>&1 || (tail -40 /mnt/w/import.txt; exit 1)
+          mkdir -p /mnt/w/game
+          timeout 2400 "$G" --headless --path "$P" --export-${{ matrix.template }} "LinuxDiag" /mnt/w/game/twilight.x86_64 > /mnt/w/export.txt 2>&1 || (tail -60 /mnt/w/export.txt; exit 1)
+          ls -la /mnt/w/game; df -h /mnt
+      - name: Download and extract the full 8-part pack + add-ons
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          cd /mnt/w; mkdir -p dl x
+          gh release view pack-63fb1355 -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep '^twilight523-' > names.txt
+          while read -r name; do
+            gh release download pack-63fb1355 -R "$GITHUB_REPOSITORY" -p "$name" -D dl
+            unzip -q -o "dl/$name" -d x
+            rm -f "dl/$name"
+            if [ -f x/source523/source523_addon.json ]; then
+              python3 - x/source523 <<'PY'
+          import json, os, sys
+          base = sys.argv[1]
+          addon = json.load(open(os.path.join(base, 'source523_addon.json')))
+          path = os.path.join(base, 'source523_addons.json')
+          merged = json.load(open(path)) if os.path.exists(path) else {}
+          merged.update(addon['sections'])
+          json.dump(merged, open(path, 'w'), indent=1)
+          PY
+              rm -f x/source523/source523_addon.json
+            fi
+          done < names.txt
+          df -h /mnt
+      - name: Run exported game with the NPC sweep
+        run: |
+          set +e
+          ulimit -c 0
+          cd /mnt/w/game
+          timeout 3000 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play.txt 2>&1
+          code=$?
+          echo "exit=$code"
+          echo "----- crash / script errors"
+          grep -n -B6 -A40 'Program crashed\|signal 11\|SCRIPT ERROR\|handle_crash\|Segmentation' /mnt/w/play.txt | grep -v '^.*BOOT_PROGRESS.*ev=alive' | cut -c1-300 | head -200
+          echo "----- sweep"
+          grep -c DIAG_SWEEP /mnt/w/play.txt; grep DIAG_SWEEP /mnt/w/play.txt | tail -3
+          grep 'DIAG t=' /mnt/w/play.txt | grep -v 'tick paused\|readiness' | tail -30 | cut -c1-300
+          echo "----- last lines"
+          grep -v 'ev=alive\|FRAME_HITCH\|tick paused\|readiness' /mnt/w/play.txt | tail -60 | cut -c1-300
+          exit 0

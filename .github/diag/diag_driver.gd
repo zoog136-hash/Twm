@@ -2,8 +2,8 @@ extends Node
 ## Diagnostic driver (Twm diag workflow only; never in the game repo).
 ## Presses through the title, enters the game, keeps the world running for
 ## PLAY_SECONDS and prints timestamps so SCRIPT ERROR lines can be placed.
-const PLAY_SECONDS: float = 900.0
-const QA = preload("res://tests/qa_class_selection.gd")
+const PLAY_SECONDS: float = 60.0
+const QA = preload("res://diag/diag_qa.gd")
 var started: int = Time.get_ticks_msec()
 var world_at: int = -1
 var entered: bool = false
@@ -74,7 +74,7 @@ func _sweep(world: Node) -> void:
 	var done: int = 0
 	for key: Variant in ids:
 		var npc_id: int = int(str(key))
-		print("DIAG_SWEEP npc=%d" % npc_id)
+		printerr("DIAG_SWEEP npc=%d" % npc_id)
 		var record: Dictionary = BASE508.npc_record(npc_id, {"source_m_npc_id": npc_id})
 		var projected: Variant = catalog.project_actor_record(record)
 		if not projected is Dictionary: _say("sweep: npc %d projected %s" % [npc_id, type_string(typeof(projected))])
@@ -130,9 +130,9 @@ func _process(_delta: float) -> void:
 			var loading: Node = _find_loading(get_tree().root)
 			var stage: String = "" if loading == null else str(loading.get("_status_text") if loading.get("_status_text") != null else "") + " awaiting=" + str(loading.get("_awaiting_title")) + " running=" + str(loading.get("_running"))
 			_say("tick paused=%s monsters=%d fps=%d loading=%s" % [get_tree().paused, monsters, Engine.get_frames_per_second(), stage])
-		if entered and not get_tree().paused and now - _sweep_started > 5000 and now - _last_hop > 25000:
-			_last_hop = now
-			_hop(scene)
+		if entered and not _swept and not get_tree().paused and now - _sweep_started > 5000:
+			_swept = true
+			_sweep(scene)
 		if now - world_at >= int(PLAY_SECONDS * 1000.0):
 			_say("DIAG_DONE survived %.0fs in world" % PLAY_SECONDS)
 			get_tree().quit(0)

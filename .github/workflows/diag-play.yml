@@ -5,9 +5,6 @@ name: Diag - play the real 523 pack and capture script errors
 # release template crashes natively (SIGSEGV, Array::size() on null).
 # Nothing is published; logs are kept as a 3-day workflow artifact.
 on:
-  push:
-    branches: ['diag/**']
-    paths: ['.github/workflows/diag-play.yml', '.github/diag/**']
   workflow_dispatch:
 permissions:
   contents: read
