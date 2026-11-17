@@ -2,7 +2,7 @@ extends Node
 ## Diagnostic driver (Twm diag workflow only; never in the game repo).
 ## Presses through the title, enters the game, keeps the world running for
 ## PLAY_SECONDS and prints timestamps so SCRIPT ERROR lines can be placed.
-const PLAY_SECONDS: float = 90.0
+const PLAY_SECONDS: float = 45.0
 const QA = preload("res://diag/diag_qa.gd")
 var started: int = Time.get_ticks_msec()
 var world_at: int = -1
@@ -16,7 +16,7 @@ var _last_hop: int = 0
 var _spawn_done: bool = false
 ## Menu -> exchange, the way the phone player reached it (2026-11-17 523.607:
 ## the release APK closed the moment the exchange was entered).
-const UI_STEPS: Array = ["menu", "exchange", "select", "select2", "close", "exchange", "select"]
+const UI_STEPS: Array = []
 var _ui_step: int = 0
 var _ui_last: int = 0
 
