@@ -2,7 +2,7 @@ extends Node
 ## Diagnostic driver (Twm diag workflow only; never in the game repo).
 ## Presses through the title, enters the game, keeps the world running for
 ## PLAY_SECONDS and prints timestamps so SCRIPT ERROR lines can be placed.
-const PLAY_SECONDS: float = 60.0
+const PLAY_SECONDS: float = 1700.0
 const QA = preload("res://diag/diag_qa.gd")
 var started: int = Time.get_ticks_msec()
 var world_at: int = -1
@@ -13,6 +13,67 @@ var _sweep_started: int = 0
 var _swept: bool = false
 var _spawned: bool = false
 var _last_hop: int = 0
+var _spawn_done: bool = false
+var _spawn_regions: Array = []
+var _spawn_index: int = 0
+var _spawn_tries: int = 0
+var _spawned_ok: int = 0
+
+## Real spawns through the population's own _spawn_slot (Monster.setup, view,
+## art), one region after another. The player is placed at the region only
+## for the call (sample_source_spawn needs it within 40 cells) and put back.
+func _spawn_step(world: Node) -> void:
+	var population: Variant = world.get("field_population")
+	if population == null: return
+	var field: Variant = population.get("field")
+	var slots: Variant = population.get("slots")
+	if field == null or not slots is Array: return
+	if _spawn_regions.is_empty():
+		var seen: Dictionary = {}
+		for slot: Dictionary in slots:
+			var region: Dictionary = slot.get("region", {})
+			if not region.get("source_rect") is Rect2i or region.get("monster_types", []).is_empty(): continue
+			var key: String = str(region.get("monster_types", [])[0])
+			if seen.has(key): continue
+			seen[key] = true
+			_spawn_regions.append(slot)
+		_say("spawn: %d distinct kinds over %d slots" % [_spawn_regions.size(), (slots as Array).size()])
+		if _spawn_regions.is_empty():
+			_spawn_done = true
+			return
+	if _spawn_index >= _spawn_regions.size() or Time.get_ticks_msec() - _sweep_started > 1500 * 1000:
+		_say("spawn done: %d kinds tried, %d built" % [_spawn_index, _spawned_ok])
+		_spawn_done = true
+		return
+	var slot: Dictionary = _spawn_regions[_spawn_index]
+	var existing: Variant = slot.get("monster")
+	if is_instance_valid(existing) and not existing.dead:
+		_spawned_ok += 1
+		printerr("DIAG_SPAWN_OK %d %s" % [_spawn_index, str(slot.region.monster_types[0])])
+		_spawn_index += 1
+		_spawn_tries = 0
+		return
+	if _spawn_tries >= 30:
+		printerr("DIAG_SPAWN_GIVEUP %d %s hold=%s" % [_spawn_index, str(slot.region.monster_types[0]), str(slot.get("patch523_spawn_hold", ""))])
+		_spawn_index += 1
+		_spawn_tries = 0
+		return
+	_spawn_tries += 1
+	var player: Node2D = world.get("player")
+	var home: Vector2 = player.global_position
+	var rect: Rect2i = slot.region.source_rect
+	player.global_position = field.coordinates.to_world(Vector2(rect.get_center()))
+	printerr("DIAG_SPAWN %d try=%d %s" % [_spawn_index, _spawn_tries, str(slot.region.monster_types[0])])
+	slot["remaining"] = 0.0
+	population.call("_spawn_slot", slot)
+	printerr("DIAG_SPAWN_RET %d" % _spawn_index)
+	var built: Variant = slot.get("monster")
+	if is_instance_valid(built):
+		# Let the built actor process a few frames (its first ticks are where
+		# the phone died) near the player, as on the phone.
+		player.global_position = built.global_position + Vector2(40, 0)
+	else:
+		player.global_position = home
 var _hop_index: int = 0
 
 ## Moves the player into the next populated source region so the field
@@ -130,9 +191,8 @@ func _process(_delta: float) -> void:
 			var loading: Node = _find_loading(get_tree().root)
 			var stage: String = "" if loading == null else str(loading.get("_status_text") if loading.get("_status_text") != null else "") + " awaiting=" + str(loading.get("_awaiting_title")) + " running=" + str(loading.get("_running"))
 			_say("tick paused=%s monsters=%d fps=%d loading=%s" % [get_tree().paused, monsters, Engine.get_frames_per_second(), stage])
-		if entered and not _swept and not get_tree().paused and now - _sweep_started > 5000:
-			_swept = true
-			_sweep(scene)
+		if entered and not get_tree().paused and now - _sweep_started > 5000 and not _spawn_done:
+			_spawn_step(scene)
 		if now - world_at >= int(PLAY_SECONDS * 1000.0):
 			_say("DIAG_DONE survived %.0fs in world" % PLAY_SECONDS)
 			get_tree().quit(0)

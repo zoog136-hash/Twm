@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        template: [release, debug]
+        template: [release]
     steps:
       - name: Free disk
         run: |
@@ -128,13 +128,14 @@ jobs:
           set +e
           ulimit -c 0
           cd /mnt/w/game
-          timeout 3000 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play.txt 2>&1
+          timeout 3300 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play.txt 2>&1
           code=$?
           echo "exit=$code"
           echo "----- crash / script errors"
           grep -n -B6 -A40 'Program crashed\|signal 11\|SCRIPT ERROR\|handle_crash\|Segmentation' /mnt/w/play.txt | grep -v '^.*BOOT_PROGRESS.*ev=alive' | cut -c1-300 | head -200
-          echo "----- sweep"
-          grep -c DIAG_SWEEP /mnt/w/play.txt; grep DIAG_SWEEP /mnt/w/play.txt | tail -3
+          echo "----- spawn"
+          grep -c DIAG_SPAWN_OK /mnt/w/play.txt; grep -c DIAG_SPAWN_GIVEUP /mnt/w/play.txt; grep 'DIAG_SPAWN' /mnt/w/play.txt | tail -12
+          grep 'DIAG_SPAWN_GIVEUP' /mnt/w/play.txt | awk '{print $NF}' | sort | uniq -c
           grep 'DIAG t=' /mnt/w/play.txt | grep -v 'tick paused\|readiness' | tail -30 | cut -c1-300
           echo "----- last lines"
           grep -v 'ev=alive\|FRAME_HITCH\|tick paused\|readiness' /mnt/w/play.txt | tail -60 | cut -c1-300
