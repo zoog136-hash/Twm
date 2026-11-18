@@ -2,7 +2,7 @@ extends Node
 ## Diagnostic driver (Twm diag workflow only; never in the game repo).
 ## Presses through the title, enters the game, keeps the world running for
 ## PLAY_SECONDS and prints timestamps so SCRIPT ERROR lines can be placed.
-const PLAY_SECONDS: float = 45.0
+const PLAY_SECONDS: float = 200.0
 const QA = preload("res://diag/diag_qa.gd")
 var started: int = Time.get_ticks_msec()
 var world_at: int = -1
@@ -224,9 +224,8 @@ func _process(_delta: float) -> void:
 			var loading: Node = _find_loading(get_tree().root)
 			var stage: String = "" if loading == null else str(loading.get("_status_text") if loading.get("_status_text") != null else "") + " awaiting=" + str(loading.get("_awaiting_title")) + " running=" + str(loading.get("_running"))
 			_say("tick paused=%s monsters=%d fps=%d loading=%s" % [get_tree().paused, monsters, Engine.get_frames_per_second(), stage])
-		if entered and not get_tree().paused and now - _sweep_started > 8000 and _ui_step < UI_STEPS.size() and now - _ui_last > 6000:
-			_ui_last = now
-			_ui(scene)
+		if entered and not get_tree().paused and now - _sweep_started > 70000 and not _spawn_done and _spawned_ok < 12:
+			_spawn_step(scene)
 		if now - world_at >= int(PLAY_SECONDS * 1000.0):
 			_say("DIAG_DONE survived %.0fs in world" % PLAY_SECONDS)
 			get_tree().quit(0)
