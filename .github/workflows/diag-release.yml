@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zoog136-hash/-
-          ref: perf/rules-content-key
+          ref: main
           path: code
           persist-credentials: false
           sparse-checkout-cone-mode: false
@@ -124,36 +124,15 @@ jobs:
             fi
           done < names.txt
           df -h /mnt
-      - name: Boot cold, simulate an OTA update (one unrelated script line), boot again
+      - name: Play (town 60 s, then field monsters) and report per-second CPU
         run: |
           set +e
           cd /mnt/w/game
-          report() {
-            python3 - "$1" <<'PY'
-          import re, sys
-          agg = {}; ready = None; misses = []
-          for line in open(sys.argv[1], errors='replace'):
-              if not line.startswith('BOOT_PROGRESS'): continue
-              if ' ev=loading_ready' in line: ready = re.search(r' t=(\d+)', line).group(1)
-              m = re.search(r' ev=end stage=(\S+).*? ms=(\d+)', line)
-              if m: agg.setdefault(m.group(1), [0, 0]); agg[m.group(1)][0] += int(m.group(2)); agg[m.group(1)][1] += 1
-              c = re.search(r' ev=cache stage=(\S+).*? result=miss reason=(\S+)', line)
-              if c: misses.append((c.group(1), c.group(2)))
-          print('loading_ready ms', ready)
-          for k, v in sorted(agg.items(), key=lambda kv: -kv[1][0])[:22]: print(f'  {v[0]:>8} {v[1]:>4}  {k}')
-          kinds = {}
-          for name, reason in misses:
-              base = re.sub(r'_[A-Z][A-Za-z0-9]*(_[A-Za-z0-9]+)?$', '_<table>', name)
-              kinds.setdefault((base, reason), 0); kinds[(base, reason)] += 1
-          print('cache misses:', len(misses))
-          for (base, reason), n in sorted(kinds.items(), key=lambda kv: -kv[1]): print(f'  {n:>4}  {base}  ({reason})')
-          PY
-          }
-          timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/boot_cold.txt 2>&1
-          echo "== cold"; report /mnt/w/boot_cold.txt
-          printf "\nconst _DIAG_SIMULATED_UPDATE: int = 1\n" >> "$P/scripts/ui/frozen_exchange_panel.gd"; tail -2 "$P/scripts/ui/frozen_exchange_panel.gd"
-          timeout 2400 "$G" --headless --path "$P" --export-pack "LinuxDiag" /mnt/w/game/twilight.pck > /mnt/w/export2.txt 2>&1 || tail -30 /mnt/w/export2.txt
-          timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/boot_update.txt 2>&1
-          echo "== after update"; report /mnt/w/boot_update.txt
-          timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/boot_warm.txt 2>&1
-          echo "== warm (no change)"; report /mnt/w/boot_warm.txt
+          timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play.txt 2>&1
+          echo "exit=$?"
+          grep -a 'world scene ready\|entered game\|DIAG_DONE\|spawn done\|spawn:' /mnt/w/play.txt | cut -c1-200
+          grep -ac DIAG_SPAWN_OK /mnt/w/play.txt
+          echo "----- crash / script errors"
+          grep -a -n 'Program crashed\|SCRIPT ERROR' /mnt/w/play.txt | head -20
+          echo "----- alive (per-second CPU)"
+          grep -a 'ev=alive' /mnt/w/play.txt | tail -45 | cut -c1-1000
