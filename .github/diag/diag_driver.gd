@@ -2,7 +2,7 @@ extends Node
 ## Diagnostic driver (Twm diag workflow only; never in the game repo).
 ## Presses through the title, enters the game, keeps the world running for
 ## PLAY_SECONDS and prints timestamps so SCRIPT ERROR lines can be placed.
-const PLAY_SECONDS: float = 200.0
+const PLAY_SECONDS: float = 130.0
 const QA = preload("res://diag/diag_qa.gd")
 var started: int = Time.get_ticks_msec()
 var world_at: int = -1
@@ -14,6 +14,33 @@ var _swept: bool = false
 var _spawned: bool = false
 var _last_hop: int = 0
 var _spawn_done: bool = false
+## Every HUD window once, timed (open call + the next frames until idle).
+const WINDOWS: Array = ["inventory", "equipment_collections", "card_collections", "skills", "quests", "status_board", "character", "crafting", "enhance", "shop", "npc_shop", "exchange", "warehouse", "map", "teleport", "titles", "totems", "guardians", "weapon_mastery", "emblems", "expedition", "source_dungeons", "spell_groups", "card_fusion", "combinations", "domination_stone", "half_elixir", "option_awakening", "settings", "log", "auto", "menu", "promo_code", "tj_coupons", "sell"]
+var _win_index: int = 0
+var _win_last: int = 0
+var _win_open_at: int = 0
+var _win_name: String = ""
+var _win_frames: int = 0
+var _win_worst: int = 0
+var _win_prev_tick: int = 0
+
+func _notification(what: int) -> void:
+	pass
+
+func _window_step(world: Node) -> void:
+	var hud: Node = _find_hud(world)
+	if hud == null: return
+	if not _win_name.is_empty():
+		print("DIAG_WIN %s open_ms=%d worst_frame_ms=%d frames=%d" % [_win_name, _win_open_at, _win_worst, _win_frames])
+		hud.call("_close_workspace")
+	_win_name = WINDOWS[_win_index]
+	_win_index += 1
+	var started: int = Time.get_ticks_usec()
+	hud.call("_navigate", _win_name)
+	_win_open_at = int((Time.get_ticks_usec() - started) / 1000)
+	_win_frames = 0
+	_win_worst = 0
+	_win_prev_tick = Time.get_ticks_msec()
 ## Menu -> exchange, the way the phone player reached it (2026-11-17 523.607:
 ## the release APK closed the moment the exchange was entered).
 const UI_STEPS: Array = []
@@ -198,6 +225,10 @@ func _find_title(node: Node) -> Node:
 
 func _process(_delta: float) -> void:
 	var now: int = Time.get_ticks_msec()
+	if not _win_name.is_empty():
+		_win_frames += 1
+		if _win_frames > 1: _win_worst = maxi(_win_worst, now - _win_prev_tick)
+		_win_prev_tick = now
 	var title: Node = _find_title(get_tree().root)
 	if title != null and now - pressed_title > 2000:
 		pressed_title = now
@@ -224,8 +255,9 @@ func _process(_delta: float) -> void:
 			var loading: Node = _find_loading(get_tree().root)
 			var stage: String = "" if loading == null else str(loading.get("_status_text") if loading.get("_status_text") != null else "") + " awaiting=" + str(loading.get("_awaiting_title")) + " running=" + str(loading.get("_running"))
 			_say("tick paused=%s monsters=%d fps=%d loading=%s" % [get_tree().paused, monsters, Engine.get_frames_per_second(), stage])
-		if entered and not get_tree().paused and now - _sweep_started > 70000 and not _spawn_done and _spawned_ok < 12:
-			_spawn_step(scene)
+		if entered and not get_tree().paused and now - _sweep_started > 15000 and _win_index < WINDOWS.size() and now - _win_last > 2500:
+			_win_last = now
+			_window_step(scene)
 		if now - world_at >= int(PLAY_SECONDS * 1000.0):
 			_say("DIAG_DONE survived %.0fs in world" % PLAY_SECONDS)
 			get_tree().quit(0)

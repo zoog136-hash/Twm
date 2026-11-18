@@ -134,5 +134,7 @@ jobs:
           grep -ac DIAG_SPAWN_OK /mnt/w/play.txt
           echo "----- crash / script errors"
           grep -a -n 'Program crashed\|SCRIPT ERROR' /mnt/w/play.txt | head -20
+          echo "----- windows (open call ms, worst following frame ms)"
+          grep -a 'DIAG_WIN' /mnt/w/play.txt | sort -t= -k2 -n -r
           echo "----- alive (per-second CPU)"
           grep -a 'ev=alive' /mnt/w/play.txt | tail -45 | cut -c1-1000
