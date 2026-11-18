@@ -2,7 +2,7 @@ extends Node
 ## Diagnostic driver (Twm diag workflow only; never in the game repo).
 ## Presses through the title, enters the game, keeps the world running for
 ## PLAY_SECONDS and prints timestamps so SCRIPT ERROR lines can be placed.
-const PLAY_SECONDS: float = 130.0
+const PLAY_SECONDS: float = 60.0
 const QA = preload("res://diag/diag_qa.gd")
 var started: int = Time.get_ticks_msec()
 var world_at: int = -1
@@ -15,7 +15,7 @@ var _spawned: bool = false
 var _last_hop: int = 0
 var _spawn_done: bool = false
 ## Every HUD window once, timed (open call + the next frames until idle).
-const WINDOWS: Array = ["inventory", "equipment_collections", "card_collections", "skills", "quests", "status_board", "character", "crafting", "enhance", "shop", "npc_shop", "exchange", "warehouse", "map", "teleport", "titles", "totems", "guardians", "weapon_mastery", "emblems", "expedition", "source_dungeons", "spell_groups", "card_fusion", "combinations", "domination_stone", "half_elixir", "option_awakening", "settings", "log", "auto", "menu", "promo_code", "tj_coupons", "sell"]
+const WINDOWS: Array = ["crafting", "tj_coupons", "domination_stone", "card_collections", "emblems", "shop", "source_dungeons", "auto", "teleport", "npc_shop"]
 var _win_index: int = 0
 var _win_last: int = 0
 var _win_open_at: int = 0
@@ -36,8 +36,12 @@ func _window_step(world: Node) -> void:
 	_win_name = WINDOWS[_win_index]
 	_win_index += 1
 	var started: int = Time.get_ticks_usec()
+	print("DIAG_TRACE begin %s" % _win_name)
+	Engine.set_meta(&"diag_trace", true)
 	hud.call("_navigate", _win_name)
+	Engine.remove_meta(&"diag_trace")
 	_win_open_at = int((Time.get_ticks_usec() - started) / 1000)
+	print("DIAG_TRACE end %s %d ms" % [_win_name, _win_open_at])
 	_win_frames = 0
 	_win_worst = 0
 	_win_prev_tick = Time.get_ticks_msec()
