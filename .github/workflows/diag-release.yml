@@ -138,7 +138,7 @@ jobs:
           echo "----- windows (open call ms, worst following frame ms)"
           grep -a 'DIAG_WIN' /mnt/w/play.txt
           echo "----- function time per window (between entries)"
-          grep -a '^FN \|^DIAG_TRACE' /mnt/w/play.txt > /mnt/w/fn.txt; wc -l /mnt/w/fn.txt
+          cat /mnt/w/fn_*.txt > /mnt/w/fn.txt; wc -l /mnt/w/fn.txt
           python3 "$GITHUB_WORKSPACE/.github/diag/fn_report.py" /mnt/w/fn.txt
           echo "----- alive (per-second CPU)"
           grep -a 'ev=alive' /mnt/w/play.txt | tail -45 | cut -c1-1000

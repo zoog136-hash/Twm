@@ -8,7 +8,7 @@ func_re = re.compile(r'^(\s*)(static\s+)?func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(.*\
 count = 0
 for base, _, files in os.walk(os.path.join(root, 'scripts')):
     for name in files:
-        if not name.endswith('.gd'): continue
+        if not name.endswith('.gd') or name == 'error_record.gd': continue
         path = os.path.join(base, name)
         rel = os.path.relpath(path, root)
         lines = open(path, encoding='utf-8').read().split('\n')
@@ -29,7 +29,7 @@ for base, _, files in os.walk(os.path.join(root, 'scripts')):
                     indent = body[:len(body) - len(body.lstrip())]
                     if len(indent) > len(m.group(1)):
                         tag = f"{rel}:{m.group(3)}"
-                        out.append(f'{indent}if Engine.has_meta(&"diag_trace"): printerr("FN ", Time.get_ticks_usec(), " {tag}")')
+                        out.append(f'{indent}if Engine.has_meta(&"diag_trace") and OS.get_thread_caller_id() == OS.get_main_thread_id(): (Engine.get_meta(&"diag_trace") as FileAccess).store_line("FN %d {tag}" % Time.get_ticks_usec())')
                         count += 1
                         changed = True
             i += 1

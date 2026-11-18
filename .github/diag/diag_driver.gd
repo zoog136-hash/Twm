@@ -36,12 +36,15 @@ func _window_step(world: Node) -> void:
 	_win_name = WINDOWS[_win_index]
 	_win_index += 1
 	var started: int = Time.get_ticks_usec()
-	print("DIAG_TRACE begin %s" % _win_name)
-	Engine.set_meta(&"diag_trace", true)
+	var trace := FileAccess.open("/mnt/w/fn_%s.txt" % _win_name, FileAccess.WRITE)
+	trace.store_line("DIAG_TRACE begin %s" % _win_name)
+	Engine.set_meta(&"diag_trace", trace)
 	hud.call("_navigate", _win_name)
 	Engine.remove_meta(&"diag_trace")
+	trace.store_line("DIAG_TRACE end %s %d ms" % [_win_name, int((Time.get_ticks_usec() - started) / 1000)])
+	trace.close()
 	_win_open_at = int((Time.get_ticks_usec() - started) / 1000)
-	print("DIAG_TRACE end %s %d ms" % [_win_name, _win_open_at])
+
 	_win_frames = 0
 	_win_worst = 0
 	_win_prev_tick = Time.get_ticks_msec()
