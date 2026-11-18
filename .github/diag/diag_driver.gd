@@ -31,7 +31,7 @@ func _window_step(world: Node) -> void:
 	var hud: Node = _find_hud(world)
 	if hud == null: return
 	if not _win_name.is_empty():
-		print("DIAG_WIN %s open_ms=%d worst_frame_ms=%d frames=%d" % [_win_name, _win_open_at, _win_worst, _win_frames])
+		print("DIAG_WIN %s open_ms=%d worst_frame_ms=%d frames=%d nodes=%d" % [_win_name, _win_open_at, _win_worst, _win_frames, int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))])
 		hud.call("_close_workspace")
 	_win_name = WINDOWS[_win_index]
 	_win_index += 1

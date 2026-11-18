@@ -135,6 +135,6 @@ jobs:
           echo "----- crash / script errors"
           grep -a -n 'Program crashed\|SCRIPT ERROR' /mnt/w/play.txt | head -20
           echo "----- windows (open call ms, worst following frame ms)"
-          grep -a 'DIAG_WIN' /mnt/w/play.txt | sort -t= -k2 -n -r
+          grep -a 'DIAG_WIN' /mnt/w/play.txt
           echo "----- alive (per-second CPU)"
           grep -a 'ev=alive' /mnt/w/play.txt | tail -45 | cut -c1-1000
