@@ -23,7 +23,26 @@ var _combat_done: bool = false
 
 ## Spawn real monsters near the player, then auto-hunt with every function
 ## entry traced to a file (main thread) for COMBAT_TRACE_MS.
-const COMBAT_TRACE_MS: int = 25000
+const COMBAT_TRACE_MS: int = 40000
+var _last_refill: int = 0
+## Keep the spawned monster's region full (up to 8 alive) around the player,
+## so auto-hunting attacks continuously during the trace.
+func _fill_region(world: Node) -> void:
+	var population: Variant = world.get("field_population")
+	if population == null or _spawn_regions.is_empty(): return
+	var region: Dictionary = (_spawn_regions[0] as Dictionary).region
+	var alive: int = 0
+	for slot: Dictionary in population.get("slots"):
+		if not is_same(slot.region, region): continue
+		var monster: Variant = slot.get("monster")
+		if is_instance_valid(monster) and not monster.dead:
+			alive += 1
+			continue
+		if alive >= 8: break
+		slot["remaining"] = 0.0
+		population.call("_spawn_slot", slot)
+		if is_instance_valid(slot.get("monster")): alive += 1
+	_say("combat region alive=%d" % alive)
 func _combat_step(world: Node, now: int) -> void:
 	if _combat_done: return
 	if _combat_started == 0:
@@ -31,6 +50,7 @@ func _combat_step(world: Node, now: int) -> void:
 			_spawn_step(world)
 			return
 		var player: Node = world.get("player")
+		_fill_region(world)
 		player.call("set_auto_enabled", true)
 		_combat_trace = FileAccess.open("/mnt/w/fn_combat.txt", FileAccess.WRITE)
 		_combat_trace.store_line("DIAG_TRACE begin combat")
@@ -38,6 +58,9 @@ func _combat_step(world: Node, now: int) -> void:
 		_combat_started = now
 		_say("combat trace started (spawned %d)" % _spawned_ok)
 		return
+	if now - _last_refill > 4000:
+		_last_refill = now
+		_fill_region(world)
 	if now - _combat_started >= COMBAT_TRACE_MS:
 		Engine.remove_meta(&"diag_trace")
 		_combat_trace.store_line("DIAG_TRACE end combat %d ms" % (now - _combat_started))
