@@ -2,7 +2,7 @@ extends Node
 ## Diagnostic driver (Twm diag workflow only; never in the game repo).
 ## Presses through the title, enters the game, keeps the world running for
 ## PLAY_SECONDS and prints timestamps so SCRIPT ERROR lines can be placed.
-const PLAY_SECONDS: float = 75.0
+const PLAY_SECONDS: float = 150.0
 const QA = preload("res://diag/diag_qa.gd")
 var started: int = Time.get_ticks_msec()
 var world_at: int = -1
@@ -17,6 +17,33 @@ var _spawn_done: bool = false
 ## Every HUD window once, timed (open call + the next frames until idle).
 const WINDOWS: Array = ["crafting", "tj_coupons", "domination_stone", "card_collections", "emblems", "shop", "source_dungeons", "auto", "teleport", "npc_shop", "inventory", "skills", "map", "titles", "guardians", "status_board"]
 var _win_index: int = 0
+var _combat_trace: FileAccess = null
+var _combat_started: int = 0
+var _combat_done: bool = false
+
+## Spawn real monsters near the player, then auto-hunt with every function
+## entry traced to a file (main thread) for COMBAT_TRACE_MS.
+const COMBAT_TRACE_MS: int = 25000
+func _combat_step(world: Node, now: int) -> void:
+	if _combat_done: return
+	if _combat_started == 0:
+		if _spawned_ok < 6 and not _spawn_done:
+			_spawn_step(world)
+			return
+		var player: Node = world.get("player")
+		player.call("set_auto_enabled", true)
+		_combat_trace = FileAccess.open("/mnt/w/fn_combat.txt", FileAccess.WRITE)
+		_combat_trace.store_line("DIAG_TRACE begin combat")
+		Engine.set_meta(&"diag_trace", _combat_trace)
+		_combat_started = now
+		_say("combat trace started (spawned %d)" % _spawned_ok)
+		return
+	if now - _combat_started >= COMBAT_TRACE_MS:
+		Engine.remove_meta(&"diag_trace")
+		_combat_trace.store_line("DIAG_TRACE end combat %d ms" % (now - _combat_started))
+		_combat_trace.close()
+		_combat_done = true
+		_say("combat trace done")
 var _win_last: int = 0
 var _win_open_at: int = 0
 var _win_name: String = ""
@@ -256,7 +283,9 @@ func _process(_delta: float) -> void:
 			var loading: Node = _find_loading(get_tree().root)
 			var stage: String = "" if loading == null else str(loading.get("_status_text") if loading.get("_status_text") != null else "") + " awaiting=" + str(loading.get("_awaiting_title")) + " running=" + str(loading.get("_running"))
 			_say("tick paused=%s monsters=%d fps=%d loading=%s" % [get_tree().paused, monsters, Engine.get_frames_per_second(), stage])
-		if entered and OS.get_environment("DIAG_SKIP_WINDOWS") != "1" and not get_tree().paused and now - _sweep_started > 15000 and _win_index < WINDOWS.size() and now - _win_last > 2500:
+		if entered and OS.get_environment("DIAG_MODE") == "combat" and not get_tree().paused and now - _sweep_started > 8000:
+			_combat_step(scene, now)
+		elif entered and OS.get_environment("DIAG_SKIP_WINDOWS") != "1" and OS.get_environment("DIAG_MODE") != "combat" and not get_tree().paused and now - _sweep_started > 15000 and _win_index < WINDOWS.size() and now - _win_last > 2500:
 			_win_last = now
 			_window_step(scene)
 		if now - world_at >= int(PLAY_SECONDS * 1000.0):
