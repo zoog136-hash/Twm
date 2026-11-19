@@ -55,6 +55,9 @@ func _combat_step(world: Node, now: int) -> void:
 			return
 		var player: Node = world.get("player")
 		_fill_region(world)
+		# As on the phone video: auto-hunt with the bag open (pickups refresh it).
+		var hud: Node = _find_hud(world)
+		if hud != null and OS.get_environment("DIAG_BAG") != "0": hud.call("_navigate", "inventory")
 		player.call("set_auto_enabled", true)
 		_combat_trace = FileAccess.open("/mnt/w/fn_combat.txt", FileAccess.WRITE)
 		_combat_trace.store_line("DIAG_TRACE begin combat")

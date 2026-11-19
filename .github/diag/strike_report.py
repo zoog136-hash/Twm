@@ -3,7 +3,7 @@
 to the end of that frame (next frame probe / process tail), time between
 consecutive FN lines goes to the function entered last."""
 import sys, collections
-START = ('world.gd:_release_player_attack_timed', 'world.gd:_impact_player_attack_timed')
+START = ('world.gd:_release_player_attack_timed', 'world.gd:_impact_player_attack_timed', 'world.gd:_collect_ground_drop_timed')
 END = ('frame_hitch_probe.gd:_notification', 'frame_hitch_log.gd:_mark_process_tail')
 agg = collections.Counter(); calls = collections.Counter(); windows = []
 cur = None; prev = None
