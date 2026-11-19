@@ -20,6 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         template: [release]
+        ref: [main, diag/combined-perf]
     steps:
       - name: Free disk
         run: |
@@ -30,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zoog136-hash/-
-          ref: main
+          ref: ${{ matrix.ref }}
           path: code
           persist-credentials: false
           sparse-checkout-cone-mode: false
@@ -96,7 +97,6 @@ jobs:
           open(e, 'w').write(s)
           PY
           tail -25 "$P/export_presets.cfg" | cut -c1-120
-          python3 "$GITHUB_WORKSPACE/.github/diag/instrument.py" "$P"
           timeout 1800 "$G" --headless --path "$P" --editor --import --quit > /mnt/w/import.txt 2>&1 || (tail -40 /mnt/w/import.txt; exit 1)
           mkdir -p /mnt/w/game
           timeout 2400 "$G" --headless --path "$P" --export-${{ matrix.template }} "LinuxDiag" /mnt/w/game/twilight.x86_64 > /mnt/w/export.txt 2>&1 || (tail -60 /mnt/w/export.txt; exit 1)
@@ -129,6 +129,9 @@ jobs:
         run: |
           set +e
           cd /mnt/w/game
+          # First start builds this device's caches; the timed start is the next one.
+          DIAG_SKIP_WINDOWS=1 timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play0.txt 2>&1
+          grep -a 'DIAG_DONE' /mnt/w/play0.txt | head -1
           timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play.txt 2>&1
           echo "exit=$?"
           grep -a 'world scene ready\|entered game\|DIAG_DONE\|spawn done\|spawn:' /mnt/w/play.txt | cut -c1-200
@@ -137,8 +140,5 @@ jobs:
           grep -a -n 'Program crashed\|SCRIPT ERROR' /mnt/w/play.txt | head -20
           echo "----- windows (open call ms, worst following frame ms)"
           grep -a 'DIAG_WIN' /mnt/w/play.txt
-          echo "----- function time per window (between entries)"
-          cat /mnt/w/fn_*.txt > /mnt/w/fn.txt; wc -l /mnt/w/fn.txt
-          python3 "$GITHUB_WORKSPACE/.github/diag/fn_report.py" /mnt/w/fn.txt
           echo "----- alive (per-second CPU)"
           grep -a 'ev=alive' /mnt/w/play.txt | tail -45 | cut -c1-1000

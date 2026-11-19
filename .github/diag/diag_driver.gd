@@ -2,7 +2,7 @@ extends Node
 ## Diagnostic driver (Twm diag workflow only; never in the game repo).
 ## Presses through the title, enters the game, keeps the world running for
 ## PLAY_SECONDS and prints timestamps so SCRIPT ERROR lines can be placed.
-const PLAY_SECONDS: float = 60.0
+const PLAY_SECONDS: float = 75.0
 const QA = preload("res://diag/diag_qa.gd")
 var started: int = Time.get_ticks_msec()
 var world_at: int = -1
@@ -15,7 +15,7 @@ var _spawned: bool = false
 var _last_hop: int = 0
 var _spawn_done: bool = false
 ## Every HUD window once, timed (open call + the next frames until idle).
-const WINDOWS: Array = ["crafting", "tj_coupons", "domination_stone", "card_collections", "emblems", "shop", "source_dungeons", "auto", "teleport", "npc_shop"]
+const WINDOWS: Array = ["crafting", "tj_coupons", "domination_stone", "card_collections", "emblems", "shop", "source_dungeons", "auto", "teleport", "npc_shop", "inventory", "skills", "map", "titles", "guardians", "status_board"]
 var _win_index: int = 0
 var _win_last: int = 0
 var _win_open_at: int = 0
@@ -36,13 +36,7 @@ func _window_step(world: Node) -> void:
 	_win_name = WINDOWS[_win_index]
 	_win_index += 1
 	var started: int = Time.get_ticks_usec()
-	var trace := FileAccess.open("/mnt/w/fn_%s.txt" % _win_name, FileAccess.WRITE)
-	trace.store_line("DIAG_TRACE begin %s" % _win_name)
-	Engine.set_meta(&"diag_trace", trace)
 	hud.call("_navigate", _win_name)
-	Engine.remove_meta(&"diag_trace")
-	trace.store_line("DIAG_TRACE end %s %d ms" % [_win_name, int((Time.get_ticks_usec() - started) / 1000)])
-	trace.close()
 	_win_open_at = int((Time.get_ticks_usec() - started) / 1000)
 
 	_win_frames = 0
@@ -262,7 +256,7 @@ func _process(_delta: float) -> void:
 			var loading: Node = _find_loading(get_tree().root)
 			var stage: String = "" if loading == null else str(loading.get("_status_text") if loading.get("_status_text") != null else "") + " awaiting=" + str(loading.get("_awaiting_title")) + " running=" + str(loading.get("_running"))
 			_say("tick paused=%s monsters=%d fps=%d loading=%s" % [get_tree().paused, monsters, Engine.get_frames_per_second(), stage])
-		if entered and not get_tree().paused and now - _sweep_started > 15000 and _win_index < WINDOWS.size() and now - _win_last > 2500:
+		if entered and OS.get_environment("DIAG_SKIP_WINDOWS") != "1" and not get_tree().paused and now - _sweep_started > 15000 and _win_index < WINDOWS.size() and now - _win_last > 2500:
 			_win_last = now
 			_window_step(scene)
 		if now - world_at >= int(PLAY_SECONDS * 1000.0):
