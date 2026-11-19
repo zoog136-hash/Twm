@@ -316,6 +316,9 @@ func _process(_delta: float) -> void:
 		if entered and OS.get_environment("DIAG_MODE") == "pixels" and not get_tree().paused and now - _sweep_started > 12000 and not _pixels_started:
 			_pixels_started = true
 			_pixel_run(scene)
+		if entered and OS.get_environment("DIAG_MODE") == "save" and not _save_traced and now - _sweep_started > 15000:
+			_save_traced = true
+			_save_trace(scene)
 		if entered and OS.get_environment("DIAG_MODE") == "combat" and not get_tree().paused and now - _sweep_started > 8000:
 			_combat_step(scene, now)
 		elif entered and OS.get_environment("DIAG_SKIP_WINDOWS") != "1" and OS.get_environment("DIAG_MODE") != "combat" and not get_tree().paused and now - _sweep_started > 15000 and _win_index < WINDOWS.size() and now - _win_last > 2500:
@@ -388,3 +391,19 @@ func _pixel_run(world: Node) -> void:
 		capture.queue_free()
 	_say("PIXELS done")
 	get_tree().quit(0)
+
+
+## Save cost: five quiet saves traced function by function.
+var _save_traced: bool = false
+func _save_trace(world: Node) -> void:
+	var trace := FileAccess.open("/mnt/w/fn_save.txt", FileAccess.WRITE)
+	Engine.set_meta(&"diag_trace", trace)
+	for i: int in 5:
+		var t0: int = Time.get_ticks_usec()
+		var result: Variant = world.call("_save_game", true)
+		trace.store_line("FN %d diag:save_done" % Time.get_ticks_usec())
+		_say("save %d result=%s ms=%.1f" % [i, str(result), (Time.get_ticks_usec() - t0) / 1000.0])
+		for f: int in 5: await get_tree().process_frame
+	Engine.remove_meta(&"diag_trace")
+	trace.close()
+	_say("save trace done")
