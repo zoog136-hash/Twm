@@ -8,37 +8,30 @@ on:
     paths: ['.github/workflows/diag-pixels.yml']
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   draw:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: main, ref: main}
+          - {name: bake, ref: perf/map-block-bake}
     steps:
       - name: Free disk
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
           sudo mkdir -p /mnt/w && sudo chown "$USER" /mnt/w
           sudo apt-get update -q && sudo apt-get install -y -q xvfb libgl1-mesa-dri mesa-utils > /dev/null
-          pip install -q pillow numpy
       - uses: actions/checkout@v4
         with: {sparse-checkout: .github}
       - uses: actions/checkout@v4
         with:
           repository: zoog136-hash/-
-          ref: main
-          path: code_main
-          persist-credentials: false
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /*
-            !/docs/
-            /docs/.gdignore
-            !/external_map_packs/
-      - uses: actions/checkout@v4
-        with:
-          repository: zoog136-hash/-
-          ref: perf/map-block-bake
-          path: code_bake
+          ref: ${{ matrix.ref }}
+          path: code
           persist-credentials: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -75,34 +68,48 @@ jobs:
               rm -f x/source523/source523_addon.json
             fi
           done < names.txt
-      - name: Draw ground of both revisions at fixed positions
+      - name: Warm caches headless, then draw ground under Xvfb
         run: |
           set +e
           export TWILIGHT_GPU_ACTOR_TEXTURES=0
-          for name in main bake; do
-            git -C "code_$name" log -1 --format="$name %H %s"
-            P="$RUNNER_TEMP/game_$name"; mkdir -p "$P"; cp -a "code_$name"/. "$P"/; rm -rf "$P/.git"
-            mkdir -p "$P/diag"; cp .github/diag/diag_driver.gd .github/diag/diag_qa.gd "$P/diag/"
-            python3 - "$P" <<'PY'
+          git -C code log -1 --format="${{ matrix.name }} %H %s"
+          P="$RUNNER_TEMP/game"; mkdir -p "$P"; cp -a code/. "$P"/; rm -rf "$P/.git"
+          mkdir -p "$P/diag"; cp .github/diag/diag_driver.gd .github/diag/diag_qa.gd "$P/diag/"
+          python3 - "$P" <<'PY'
           import sys
           p = sys.argv[1] + '/project.godot'; s = open(p).read()
           s = s.replace('[autoload]\n', '[autoload]\n\nDiagDriver="*res://diag/diag_driver.gd"\n', 1)
           open(p, 'w').write(s)
           PY
-            timeout 1800 "$G" --headless --path "$P" --editor --import --quit > /mnt/w/import_$name.txt 2>&1 || tail -20 /mnt/w/import_$name.txt
-            rm -rf /mnt/w/px; mkdir -p /mnt/w/px
-            DIAG_MODE=pixels timeout 3600 xvfb-run -a -s "-screen 0 1280x720x24" "$G" --path "$P" --rendering-driver opengl3 --resolution 1280x720 -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play_$name.txt 2>&1
-            echo "$name exit=$?"
-            grep -a 'DIAG_PIXEL\|PIXELS\|entered game\|SCRIPT ERROR\|Program crashed' /mnt/w/play_$name.txt | head -30 | cut -c1-300
-            mv /mnt/w/px /mnt/w/px_$name
-            rm -rf "$P"
-          done
-      - name: Compare pixels
+          timeout 1800 "$G" --headless --path "$P" --editor --import --quit > /mnt/w/import.txt 2>&1 || tail -20 /mnt/w/import.txt
+          DIAG_SKIP_WINDOWS=1 timeout 2400 "$G" --headless --path "$P" -- --source523-pack=/mnt/w/x/source523 > /mnt/w/warm.txt 2>&1
+          grep -a 'entered game\|DIAG_DONE\|DIAG_TIMEOUT' /mnt/w/warm.txt | head -3
+          mkdir -p /mnt/w/px
+          DIAG_MODE=pixels DIAG_TIMEOUT_S=9000 timeout 9300 xvfb-run -a -s "-screen 0 1280x720x24" "$G" --path "$P" --rendering-driver opengl3 --resolution 1280x720 -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play.txt 2>&1
+          echo "exit=$?"
+          grep -a 'DIAG_PIXEL\|PIXELS\|entered game\|world scene ready\|SCRIPT ERROR\|Program crashed\|DIAG_TIMEOUT' /mnt/w/play.txt | head -30 | cut -c1-300
+          ls /mnt/w/px
+          tar -czf /mnt/w/px-${{ matrix.name }}.tar.gz -C /mnt/w px
+      - name: Keep the images on the diag release
+        env: {GH_TOKEN: '${{ github.token }}'}
         run: |
+          gh release view diag-pixels -R "$GITHUB_REPOSITORY" > /dev/null 2>&1 || gh release create diag-pixels -R "$GITHUB_REPOSITORY" --prerelease --title "diag pixels" --notes "diagnostic images only"
+          gh release upload diag-pixels /mnt/w/px-${{ matrix.name }}.tar.gz -R "$GITHUB_REPOSITORY" --clobber
+  compare:
+    needs: draw
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare pixels
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          pip install -q pillow numpy
+          mkdir -p a b
+          gh release download diag-pixels -R "$GITHUB_REPOSITORY" -p px-main.tar.gz -O main.tgz && tar -xzf main.tgz -C a
+          gh release download diag-pixels -R "$GITHUB_REPOSITORY" -p px-bake.tar.gz -O bake.tgz && tar -xzf bake.tgz -C b
           python3 - <<'PY'
           import os, numpy as np
           from PIL import Image
-          a, b = '/mnt/w/px_main', '/mnt/w/px_bake'
+          a, b = 'a/px', 'b/px'
           names = sorted(set(os.listdir(a)) & set(os.listdir(b))) if os.path.isdir(a) and os.path.isdir(b) else []
           print('images', names)
           for n in names:
@@ -111,7 +118,7 @@ jobs:
               if x.shape != y.shape: print(n, 'size differs', x.shape, y.shape); continue
               d = np.abs(x - y).max(axis=2)
               lit = (x[..., :3].sum(axis=2) > 0).mean()
-              print('%s diff_pixels=%d (%.4f%%) max=%d over1=%d over8=%d nonblack=%.3f' % (n, (d > 0).sum(), 100.0 * (d > 0).mean(), d.max(), (d > 1).sum(), (d > 8).sum(), lit))
+              print('%s diff_pixels=%d (%.4f%%) max=%d over1=%d over3=%d over8=%d nonblack=%.3f' % (n, (d > 0).sum(), 100.0 * (d > 0).mean(), d.max(), (d > 1).sum(), (d > 3).sum(), (d > 8).sum(), lit))
               if (d > 0).any():
                   ys, xs = np.nonzero(d)
                   print('   bbox', xs.min(), ys.min(), xs.max(), ys.max())

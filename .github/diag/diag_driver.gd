@@ -321,7 +321,7 @@ func _process(_delta: float) -> void:
 		if now - world_at >= int(PLAY_SECONDS * 1000.0) and OS.get_environment("DIAG_MODE") != "pixels":
 			_say("DIAG_DONE survived %.0fs in world" % PLAY_SECONDS)
 			get_tree().quit(0)
-	if now - started > 2400 * 1000:
+	if now - started > int(OS.get_environment("DIAG_TIMEOUT_S") if not OS.get_environment("DIAG_TIMEOUT_S").is_empty() else "2400") * 1000:
 		_say("DIAG_TIMEOUT")
 		get_tree().quit(3)
 
