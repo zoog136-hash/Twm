@@ -134,7 +134,7 @@ jobs:
           DIAG_SKIP_WINDOWS=1 timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play0.txt 2>&1
           grep -a 'DIAG_DONE' /mnt/w/play0.txt | head -1
           DIAG_MODE=combat timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play.txt 2>&1
-          grep -a 'combat trace\|DIAG_SPAWN_OK' /mnt/w/play.txt | head
+          grep -a 'combat trace\|combat region\|DIAG_SPAWN_OK' /mnt/w/play.txt | head -20
           echo "----- combat function time"
           python3 "$GITHUB_WORKSPACE/.github/diag/fn_report.py" /mnt/w/fn_combat.txt
           echo "----- inside attacks"

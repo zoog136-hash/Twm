@@ -42,7 +42,11 @@ func _fill_region(world: Node) -> void:
 		slot["remaining"] = 0.0
 		population.call("_spawn_slot", slot)
 		if is_instance_valid(slot.get("monster")): alive += 1
-	_say("combat region alive=%d" % alive)
+	var player: Node2D = world.get("player")
+	var nearest: float = INF
+	for m: Node in get_tree().get_nodes_in_group("monsters"):
+		if m is Node2D and not m.get("dead"): nearest = minf(nearest, (m as Node2D).global_position.distance_to(player.global_position))
+	_say("combat region alive=%d monsters=%d nearest=%.0f auto=%s hp=%s" % [alive, get_tree().get_nodes_in_group("monsters").size(), nearest, str(player.get("auto_enabled")), str(world.get("hp"))])
 func _combat_step(world: Node, now: int) -> void:
 	if _combat_done: return
 	if _combat_started == 0:
