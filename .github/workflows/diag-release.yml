@@ -137,6 +137,8 @@ jobs:
           grep -a 'combat trace\|DIAG_SPAWN_OK' /mnt/w/play.txt | head
           echo "----- combat function time"
           python3 "$GITHUB_WORKSPACE/.github/diag/fn_report.py" /mnt/w/fn_combat.txt
+          echo "----- inside attacks"
+          python3 "$GITHUB_WORKSPACE/.github/diag/strike_report.py" /mnt/w/fn_combat.txt
           echo "----- hitch details during combat"
           grep -a 'ev=alive' /mnt/w/play.txt | grep -o 'detail_top=[^ ]*' | tail -8
           echo "exit=$?"
@@ -148,9 +150,3 @@ jobs:
           grep -a 'DIAG_WIN' /mnt/w/play.txt
           echo "----- alive (per-second CPU)"
           grep -a 'ev=alive' /mnt/w/play.txt | tail -45 | cut -c1-1000
-      - name: Keep the function trace
-        if: always()
-        run: gzip -9 -c /mnt/w/fn_combat.txt > /mnt/w/fn_combat.txt.gz || true
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with: {name: fn-combat, path: /mnt/w/fn_combat.txt.gz, retention-days: 3}
