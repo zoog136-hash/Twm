@@ -283,12 +283,15 @@ func _process(_delta: float) -> void:
 			var loading: Node = _find_loading(get_tree().root)
 			var stage: String = "" if loading == null else str(loading.get("_status_text") if loading.get("_status_text") != null else "") + " awaiting=" + str(loading.get("_awaiting_title")) + " running=" + str(loading.get("_running"))
 			_say("tick paused=%s monsters=%d fps=%d loading=%s" % [get_tree().paused, monsters, Engine.get_frames_per_second(), stage])
+		if entered and OS.get_environment("DIAG_MODE") == "pixels" and not get_tree().paused and now - _sweep_started > 12000 and not _pixels_started:
+			_pixels_started = true
+			_pixel_run(scene)
 		if entered and OS.get_environment("DIAG_MODE") == "combat" and not get_tree().paused and now - _sweep_started > 8000:
 			_combat_step(scene, now)
 		elif entered and OS.get_environment("DIAG_SKIP_WINDOWS") != "1" and OS.get_environment("DIAG_MODE") != "combat" and not get_tree().paused and now - _sweep_started > 15000 and _win_index < WINDOWS.size() and now - _win_last > 2500:
 			_win_last = now
 			_window_step(scene)
-		if now - world_at >= int(PLAY_SECONDS * 1000.0):
+		if now - world_at >= int(PLAY_SECONDS * 1000.0) and OS.get_environment("DIAG_MODE") != "pixels":
 			_say("DIAG_DONE survived %.0fs in world" % PLAY_SECONDS)
 			get_tree().quit(0)
 	if now - started > 2400 * 1000:
@@ -301,3 +304,57 @@ func _find_loading(node: Node) -> Node:
 		var found: Node = _find_loading(child)
 		if found != null: return found
 	return null
+
+
+## Map ground pixels: the renderer's own tile pass drawn into a private
+## viewport (nothing else on it) at fixed offsets from the entry position, so
+## two builds compare ground pixels only (no actors, HUD or animation).
+var _pixels_started: bool = false
+const PIXEL_OFFSETS: Array = [Vector2(0, 0), Vector2(384, 0), Vector2(0, 288), Vector2(-512, -256), Vector2(900, 400), Vector2(-900, 500), Vector2(260, -700), Vector2(0, 0)]
+func _find_renderer(n: Node) -> Node:
+	if n.has_method("_draw_tiles") and n.has_method("_build_frame"): return n
+	for c: Node in n.get_children():
+		var f: Node = _find_renderer(c)
+		if f != null: return f
+	return null
+
+func _pixel_run(world: Node) -> void:
+	DirAccess.make_dir_recursive_absolute("/mnt/w/px")
+	var renderer: Node = _find_renderer(world)
+	if renderer == null:
+		_say("PIXELS no renderer"); get_tree().quit(4); return
+	var player: Node2D = world.get("player")
+	var home: Vector2 = player.global_position
+	player.call("set_auto_enabled", false) if player.has_method("set_auto_enabled") else null
+	for index: int in PIXEL_OFFSETS.size():
+		player.global_position = home + PIXEL_OFFSETS[index]
+		if player is CharacterBody2D: (player as CharacterBody2D).velocity = Vector2.ZERO
+		var camera: Variant = player.get("camera")
+		if camera is Camera2D: (camera as Camera2D).reset_smoothing(); (camera as Camera2D).force_update_scroll()
+		for i: int in 5: await get_tree().process_frame
+		renderer.call("refresh_visible")
+		for i: int in 40: await get_tree().process_frame
+		var view: Rect2 = renderer.call("_view_rect")
+		var delta: Vector2 = renderer.get("_visual_delta")
+		var capture := SubViewport.new()
+		capture.size = Vector2i(view.size)
+		capture.transparent_bg = false
+		capture.disable_3d = true
+		capture.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_NEAREST
+		capture.render_target_update_mode = SubViewport.UPDATE_ONCE
+		var canvas := Node2D.new()
+		canvas.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		var ground: Variant = renderer.get("_tile_ground")
+		if ground is CanvasItem and (ground as CanvasItem).material != null: canvas.material = (ground as CanvasItem).material
+		canvas.position = delta - view.position
+		canvas.draw.connect(func() -> void: renderer.call("_draw_tiles", canvas))
+		capture.add_child(canvas)
+		add_child(capture)
+		for i: int in 4: await get_tree().process_frame
+		var image: Image = capture.get_texture().get_image()
+		image.save_png("/mnt/w/px/%02d.png" % index)
+		var metrics: Dictionary = renderer.call("frame_metrics")
+		print("DIAG_PIXEL %d pos=%s view=%s problem=%s draw_commands=%s blocks=%s" % [index, str(player.global_position), str(view), str(renderer.get("problem")), str(metrics.get("draw_commands")), str(metrics.get("visible_blocks", "-"))])
+		capture.queue_free()
+	_say("PIXELS done")
+	get_tree().quit(0)

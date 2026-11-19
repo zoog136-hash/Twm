@@ -1,0 +1,120 @@
+name: Diag - map ground pixels, main vs block bake
+# Diagnostic only. Draws the 523 map ground of two game revisions at the same
+# positions with the real pack (gl_compatibility under Xvfb, tile GPU
+# compression off so both draw the same RGBA8 atlases) and compares pixels.
+on:
+  push:
+    branches: ['diag/**']
+    paths: ['.github/workflows/diag-pixels.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  draw:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: [main, perf/map-block-bake]
+    steps:
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p /mnt/w && sudo chown "$USER" /mnt/w
+          sudo apt-get update -q && sudo apt-get install -y -q xvfb libgl1-mesa-dri mesa-utils > /dev/null
+      - uses: actions/checkout@v4
+        with: {sparse-checkout: .github}
+      - uses: actions/checkout@v4
+        with:
+          repository: zoog136-hash/-
+          ref: ${{ matrix.ref }}
+          path: code
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/
+            /docs/.gdignore
+            !/external_map_packs/
+      - name: Godot editor
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o "$RUNNER_TEMP/godot.zip" https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP"
+          echo "G=$RUNNER_TEMP/Godot_v4.7.2-stable_linux.x86_64" >> "$GITHUB_ENV"
+      - name: Stage and import
+        run: |
+          set -euo pipefail
+          cd code; git log -1 --format='code %H %s'
+          P="$RUNNER_TEMP/game"; mkdir -p "$P"; cp -a . "$P"/; rm -rf "$P/.git"
+          echo "P=$P" >> "$GITHUB_ENV"
+          mkdir -p "$P/diag"; cp "$GITHUB_WORKSPACE/.github/diag/diag_driver.gd" "$GITHUB_WORKSPACE/.github/diag/diag_qa.gd" "$P/diag/"
+          python3 - "$P" <<'PY'
+          import sys
+          p = sys.argv[1] + '/project.godot'; s = open(p).read()
+          s = s.replace('[autoload]\n', '[autoload]\n\nDiagDriver="*res://diag/diag_driver.gd"\n', 1)
+          open(p, 'w').write(s)
+          PY
+          timeout 1800 "$G" --headless --path "$P" --editor --import --quit > /mnt/w/import.txt 2>&1 || (tail -40 /mnt/w/import.txt; exit 1)
+      - name: Download and extract the full 8-part pack + add-ons
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euo pipefail
+          cd /mnt/w; mkdir -p dl x
+          gh release view pack-63fb1355 -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep '^twilight523-' > names.txt
+          while read -r name; do
+            gh release download pack-63fb1355 -R "$GITHUB_REPOSITORY" -p "$name" -D dl
+            unzip -q -o "dl/$name" -d x
+            rm -f "dl/$name"
+            if [ -f x/source523/source523_addon.json ]; then
+              python3 - x/source523 <<'PY'
+          import json, os, sys
+          base = sys.argv[1]
+          addon = json.load(open(os.path.join(base, 'source523_addon.json')))
+          path = os.path.join(base, 'source523_addons.json')
+          merged = json.load(open(path)) if os.path.exists(path) else {}
+          merged.update(addon['sections'])
+          json.dump(merged, open(path, 'w'), indent=1)
+          PY
+              rm -f x/source523/source523_addon.json
+            fi
+          done < names.txt
+      - name: Draw ground at fixed positions
+        run: |
+          set +e
+          export TWILIGHT_GPU_ACTOR_TEXTURES=0
+          DIAG_MODE=pixels timeout 3000 xvfb-run -a -s "-screen 0 1280x720x24" "$G" --path "$P" --rendering-driver opengl3 --resolution 1280x720 -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play.txt 2>&1
+          echo "exit=$?"
+          grep -a 'DIAG_PIXEL\|PIXELS\|entered game\|SCRIPT ERROR\|Program crashed' /mnt/w/play.txt | head -40 | cut -c1-300
+          ls -la /mnt/w/px || true
+      - name: Name artifact
+        run: echo "AN=px-$(echo '${{ matrix.ref }}' | tr '/' '-')" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with: {name: '${{ env.AN }}', path: /mnt/w/px, retention-days: 3}
+  compare:
+    needs: draw
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {path: px}
+      - name: Compare pixels
+        run: |
+          pip install -q pillow numpy
+          python3 - <<'PY'
+          import os, numpy as np
+          from PIL import Image
+          a, b = 'px/px-main', 'px/px-perf-map-block-bake'
+          names = sorted(set(os.listdir(a)) & set(os.listdir(b))) if os.path.isdir(a) and os.path.isdir(b) else []
+          print('images', names)
+          for n in names:
+              x = np.asarray(Image.open(os.path.join(a, n)).convert('RGBA')).astype(int)
+              y = np.asarray(Image.open(os.path.join(b, n)).convert('RGBA')).astype(int)
+              if x.shape != y.shape: print(n, 'size differs', x.shape, y.shape); continue
+              d = np.abs(x - y).max(axis=2)
+              lit = (x[..., :3].sum(axis=2) > 0).mean()
+              print('%s diff_pixels=%d (%.4f%%) max=%d over1=%d over8=%d nonblack=%.3f' % (n, (d > 0).sum(), 100.0 * (d > 0).mean(), d.max(), (d > 1).sum(), (d > 8).sum(), lit))
+              if (d > 0).any():
+                  ys, xs = np.nonzero(d)
+                  print('   bbox', xs.min(), ys.min(), xs.max(), ys.max())
+          PY
