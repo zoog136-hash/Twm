@@ -2,7 +2,7 @@ extends Node
 ## Diagnostic driver (Twm diag workflow only; never in the game repo).
 ## Presses through the title, enters the game, keeps the world running for
 ## PLAY_SECONDS and prints timestamps so SCRIPT ERROR lines can be placed.
-const PLAY_SECONDS: float = 150.0
+const PLAY_SECONDS: float = 240.0
 const QA = preload("res://diag/diag_qa.gd")
 var started: int = Time.get_ticks_msec()
 var world_at: int = -1
@@ -27,7 +27,7 @@ const COMBAT_TRACE_MS: int = 25000
 func _combat_step(world: Node, now: int) -> void:
 	if _combat_done: return
 	if _combat_started == 0:
-		if _spawned_ok < 6 and not _spawn_done:
+		if _spawned_ok < 1 and not _spawn_done:
 			_spawn_step(world)
 			return
 		var player: Node = world.get("player")
