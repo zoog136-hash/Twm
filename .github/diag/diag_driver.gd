@@ -15,6 +15,8 @@ var _spawned: bool = false
 var _last_hop: int = 0
 var _spawn_done: bool = false
 ## Every HUD window once, timed (open call + the next frames until idle).
+## Bag mode: the bag cold, another menu, the bag again (traced function by function).
+const BAG_WINDOWS: Array = ["inventory", "skills", "inventory", "status_board", "inventory"]
 const WINDOWS: Array = ["crafting", "tj_coupons", "domination_stone", "card_collections", "emblems", "shop", "source_dungeons", "auto", "teleport", "npc_shop", "inventory", "skills", "map", "titles", "guardians", "status_board"]
 var _win_index: int = 0
 var _combat_trace: FileAccess = null
@@ -90,8 +92,19 @@ func _window_step(world: Node) -> void:
 	if not _win_name.is_empty():
 		print("DIAG_WIN %s open_ms=%d worst_frame_ms=%d frames=%d nodes=%d" % [_win_name, _win_open_at, _win_worst, _win_frames, int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))])
 		hud.call("_close_workspace")
-	_win_name = WINDOWS[_win_index]
+	var list: Array = BAG_WINDOWS if OS.get_environment("DIAG_MODE") == "bag" else WINDOWS
+	if _win_index >= list.size():
+		_win_index = WINDOWS.size()
+		if Engine.has_meta(&"diag_trace"):
+			(Engine.get_meta(&"diag_trace") as FileAccess).close()
+			Engine.remove_meta(&"diag_trace")
+			_say("bag trace done")
+		return
+	_win_name = list[_win_index]
 	_win_index += 1
+	if OS.get_environment("DIAG_MODE") == "bag" and not Engine.has_meta(&"diag_trace"):
+		Engine.set_meta(&"diag_trace", FileAccess.open("/mnt/w/fn_bag.txt", FileAccess.WRITE))
+	if Engine.has_meta(&"diag_trace"): (Engine.get_meta(&"diag_trace") as FileAccess).store_line("FN %d diag:open_%s" % [Time.get_ticks_usec(), _win_name])
 	var started: int = Time.get_ticks_usec()
 	hud.call("_navigate", _win_name)
 	_win_open_at = int((Time.get_ticks_usec() - started) / 1000)
