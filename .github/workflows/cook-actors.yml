@@ -52,14 +52,17 @@ jobs:
           set -euo pipefail
           if [ "$EVENT" = "workflow_dispatch" ]; then
             source_tag="$IN_SOURCE"; ref="$IN_REF"; shards="$IN_SHARDS"; limit="$IN_LIMIT"; lossless="$IN_LOSSLESS"; kinds="$IN_KINDS"
+            suffix=""
           else
             r=.github/cook-request.json
             source_tag=$(jq -r .source_tag $r); ref=$(jq -r .code_ref $r); shards=$(jq -r .shards $r); limit=$(jq -r .limit $r); lossless=$(jq -r .lossless $r); kinds=$(jq -r '.kinds // "npc,class,transform,effect"' $r)
+            # A re-cook can publish next to the pack the current game pins.
+            suffix=$(jq -r '.tag_suffix // ""' $r)
           fi
           code_sha=$(git ls-remote https://github.com/zoog136-hash/- "$ref" | head -1 | cut -f1)
           [ -n "$code_sha" ] || code_sha="$ref"
           cooked_id=$(printf '%s|%s|%s|%s|%s|%s' "$source_tag" "$code_sha" "$shards" "$limit" "$lossless" "$kinds" | sha256sum | cut -d' ' -f1)
-          tag="cooked-${source_tag#pack-}-v2"
+          tag="cooked-${source_tag#pack-}-v2${suffix}"
           [ "$limit" = "0" ] || tag="$tag-trial"
           [ "$lossless" = "false" ] && tag="$tag-block"
           matrix=$(python3 -c "import json;print(json.dumps(list(range($shards))))")
