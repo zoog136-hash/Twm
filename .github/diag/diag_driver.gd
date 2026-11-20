@@ -91,6 +91,7 @@ func _window_step(world: Node) -> void:
 	if hud == null: return
 	if not _win_name.is_empty():
 		print("DIAG_WIN %s open_ms=%d worst_frame_ms=%d frames=%d nodes=%d" % [_win_name, _win_open_at, _win_worst, _win_frames, int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))])
+		if Engine.has_meta(&"diag_trace"): (Engine.get_meta(&"diag_trace") as FileAccess).store_line("DIAG_TRACE end win%d_%s %d ms" % [_win_index, _win_name, _win_open_at])
 		hud.call("_close_workspace")
 	var list: Array = BAG_WINDOWS if OS.get_environment("DIAG_MODE") == "bag" else WINDOWS
 	if _win_index >= list.size():
@@ -104,6 +105,7 @@ func _window_step(world: Node) -> void:
 	_win_index += 1
 	if OS.get_environment("DIAG_MODE") == "bag" and not Engine.has_meta(&"diag_trace"):
 		Engine.set_meta(&"diag_trace", FileAccess.open("/mnt/w/fn_bag.txt", FileAccess.WRITE))
+	if Engine.has_meta(&"diag_trace"): (Engine.get_meta(&"diag_trace") as FileAccess).store_line("DIAG_TRACE begin win%d_%s" % [_win_index, _win_name])
 	if Engine.has_meta(&"diag_trace"): (Engine.get_meta(&"diag_trace") as FileAccess).store_line("FN %d diag:open_%s" % [Time.get_ticks_usec(), _win_name])
 	var started: int = Time.get_ticks_usec()
 	hud.call("_navigate", _win_name)
