@@ -296,8 +296,21 @@ func _find_title(node: Node) -> Node:
 		if found != null: return found
 	return null
 
+var _mem_at: int = -100000
+func _mem_line(now: int) -> void:
+	if now - _mem_at < 2000: return
+	_mem_at = now
+	var rss: String = ""; var hwm: String = ""
+	var f := FileAccess.open("/proc/self/status", FileAccess.READ)
+	if f != null:
+		for line: String in f.get_as_text().split("\n"):
+			if line.begins_with("VmRSS:"): rss = line.substr(6).strip_edges()
+			if line.begins_with("VmHWM:"): hwm = line.substr(6).strip_edges()
+	print("DIAG_MEM t=%d static=%dMB static_peak=%dMB rss=%s hwm=%s tex=%dMB nodes=%d objs=%d" % [now/1000, OS.get_static_memory_usage()/1048576, OS.get_static_memory_peak_usage()/1048576, rss, hwm, int(Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED))/1048576, int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), int(Performance.get_monitor(Performance.OBJECT_COUNT))])
+
 func _process(_delta: float) -> void:
 	var now: int = Time.get_ticks_msec()
+	_mem_line(now)
 	if not _win_name.is_empty():
 		_win_frames += 1
 		if _win_frames > 1: _win_worst = maxi(_win_worst, now - _win_prev_tick)
