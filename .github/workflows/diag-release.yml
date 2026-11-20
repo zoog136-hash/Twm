@@ -10,6 +10,8 @@ on:
     branches: ['diag/**']
     paths: ['.github/workflows/diag-release.yml', '.github/diag/**']
   workflow_dispatch:
+    inputs:
+      ref: {description: game ref, default: main}
 permissions:
   contents: read
 jobs:
@@ -20,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         template: [release]
-        ref: [main]
+        ref: ['${{ inputs.ref || ''main'' }}']
     steps:
       - name: Free disk
         run: |
