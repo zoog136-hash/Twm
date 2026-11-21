@@ -301,9 +301,11 @@ func _mem_line(now: int) -> void:
 	if now - _mem_at < 2000: return
 	_mem_at = now
 	var rss: String = ""; var hwm: String = ""
+	# /proc files report length 0: read line by line.
 	var f := FileAccess.open("/proc/self/status", FileAccess.READ)
 	if f != null:
-		for line: String in f.get_as_text().split("\n"):
+		while not f.eof_reached():
+			var line: String = f.get_line()
 			if line.begins_with("VmRSS:"): rss = line.substr(6).strip_edges()
 			if line.begins_with("VmHWM:"): hwm = line.substr(6).strip_edges()
 	print("DIAG_MEM t=%d static=%dMB static_peak=%dMB rss=%s hwm=%s tex=%dMB nodes=%d objs=%d" % [now/1000, OS.get_static_memory_usage()/1048576, OS.get_static_memory_peak_usage()/1048576, rss, hwm, int(Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED))/1048576, int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), int(Performance.get_monitor(Performance.OBJECT_COUNT))])
