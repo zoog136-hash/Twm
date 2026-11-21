@@ -139,7 +139,7 @@ jobs:
           grep -a 'DIAG_MEM' /mnt/w/play0.txt | sort -t= -k5 | tail -1
           DIAG_MODE=bag timeout 1200 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play_bag.txt 2>&1
           echo "----- bag open"
-          grep -a 'DIAG_WIN\|bag trace' /mnt/w/play_bag.txt | head -10
+          grep -a 'DIAG_WIN\|DIAG_NODES\|DIAG_MEM\|bag trace' /mnt/w/play_bag.txt | head -150
           python3 "$GITHUB_WORKSPACE/.github/diag/fn_report.py" /mnt/w/fn_bag.txt | tail -60
           DIAG_MODE=save DIAG_SKIP_WINDOWS=1 timeout 1200 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play_save.txt 2>&1
           echo "----- save cost"
