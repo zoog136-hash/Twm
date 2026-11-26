@@ -143,6 +143,10 @@ jobs:
           python3 "$GITHUB_WORKSPACE/.github/diag/fn_report.py" /mnt/w/fn_bag.txt > /mnt/w/fn_bag_report.txt || true
           grep -a -A30 "=== win[0-9]*_crafting\|=== win[0-9]*_equipment_collections\|=== win[0-9]*_status_board" /mnt/w/fn_bag_report.txt | head -140 || true
           tail -30 /mnt/w/fn_bag_report.txt
+          # Same device, next app start: windows whose data is baked on the first open.
+          DIAG_MODE=bag timeout 1200 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play_bag2.txt 2>&1
+          echo "----- bag open (second start)"
+          grep -a 'DIAG_WIN' /mnt/w/play_bag2.txt | head -20 | sed 's/^/RESTART /'
           DIAG_MODE=save DIAG_SKIP_WINDOWS=1 timeout 1200 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play_save.txt 2>&1
           echo "----- save cost"
           grep -a 'DIAG.*save' /mnt/w/play_save.txt | head -10
