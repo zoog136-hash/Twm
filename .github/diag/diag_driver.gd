@@ -16,7 +16,7 @@ var _last_hop: int = 0
 var _spawn_done: bool = false
 ## Every HUD window once, timed (open call + the next frames until idle).
 ## Bag mode: the bag cold, another menu, the bag again (traced function by function).
-const BAG_WINDOWS: Array = ["inventory", "equipment_collections", "inventory", "card_collections", "inventory", "monsterbook523", "inventory", "map", "inventory", "skills", "inventory", "status_board", "inventory", "quests", "inventory", "crafting", "inventory", "growth96", "inventory"]
+const BAG_WINDOWS: Array = ["inventory", "equipment_collections", "card_collections", "monsterbook523", "map", "skills", "status_board", "quests", "crafting", "growth96", "titles", "guardians", "inventory", "equipment_collections", "skills"]
 const WINDOWS: Array = ["crafting", "tj_coupons", "domination_stone", "card_collections", "emblems", "shop", "source_dungeons", "auto", "teleport", "npc_shop", "inventory", "skills", "map", "titles", "guardians", "status_board"]
 var _win_index: int = 0
 var _combat_trace: FileAccess = null
@@ -90,7 +90,7 @@ func _window_step(world: Node) -> void:
 	var hud: Node = _find_hud(world)
 	if hud == null: return
 	if not _win_name.is_empty():
-		print("DIAG_WIN %s open_ms=%d worst_frame_ms=%d frames=%d nodes=%d" % [_win_name, _win_open_at, _win_worst, _win_frames, int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))])
+		print("DIAG_WIN %s open_ms=%d worst_frame_ms=%d frames=%d nodes=%d res=%d" % [_win_name, _win_open_at, _win_worst, _win_frames, int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT))])
 		if Engine.has_meta(&"diag_trace"): (Engine.get_meta(&"diag_trace") as FileAccess).store_line("DIAG_TRACE end win%d_%s %d ms" % [_win_index, _win_name, _win_open_at])
 		hud.call("_close_workspace")
 	var list: Array = BAG_WINDOWS if OS.get_environment("DIAG_MODE") == "bag" else WINDOWS
@@ -107,7 +107,7 @@ func _window_step(world: Node) -> void:
 		Engine.set_meta(&"diag_trace", FileAccess.open("/mnt/w/fn_bag.txt", FileAccess.WRITE))
 	if Engine.has_meta(&"diag_trace"): (Engine.get_meta(&"diag_trace") as FileAccess).store_line("DIAG_TRACE begin win%d_%s" % [_win_index, _win_name])
 	if Engine.has_meta(&"diag_trace"): (Engine.get_meta(&"diag_trace") as FileAccess).store_line("FN %d diag:open_%s" % [Time.get_ticks_usec(), _win_name])
-	print("DIAG_NODES before %s nodes=%d objs=%d" % [_win_name, int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), int(Performance.get_monitor(Performance.OBJECT_COUNT))])
+	print("DIAG_NODES before %s nodes=%d objs=%d res=%d" % [_win_name, int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), int(Performance.get_monitor(Performance.OBJECT_COUNT)), int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT))])
 	var started: int = Time.get_ticks_usec()
 	hud.call("_navigate", _win_name)
 	_win_open_at = int((Time.get_ticks_usec() - started) / 1000)
