@@ -140,7 +140,9 @@ jobs:
           DIAG_MODE=bag timeout 1200 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play_bag.txt 2>&1
           echo "----- bag open"
           grep -a 'DIAG_WIN\|DIAG_NODES\|DIAG_MEM\|bag trace' /mnt/w/play_bag.txt | head -150
-          python3 "$GITHUB_WORKSPACE/.github/diag/fn_report.py" /mnt/w/fn_bag.txt | tail -60
+          python3 "$GITHUB_WORKSPACE/.github/diag/fn_report.py" /mnt/w/fn_bag.txt > /mnt/w/fn_bag_report.txt || true
+          grep -a -A30 "=== win[0-9]*_crafting\|=== win[0-9]*_equipment_collections\|=== win[0-9]*_status_board" /mnt/w/fn_bag_report.txt | head -140 || true
+          tail -30 /mnt/w/fn_bag_report.txt
           DIAG_MODE=save DIAG_SKIP_WINDOWS=1 timeout 1200 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play_save.txt 2>&1
           echo "----- save cost"
           grep -a 'DIAG.*save' /mnt/w/play_save.txt | head -10
