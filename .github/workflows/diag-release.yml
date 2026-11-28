@@ -140,6 +140,7 @@ jobs:
             grep -a 'bigbag\|DIAG_WIN' /mnt/w/play_bigbag.txt | head -24 | cut -c1-220
             python3 "$GITHUB_WORKSPACE/.github/diag/fn_report.py" /mnt/w/fn_bag.txt > /mnt/w/fn_bigbag_report.txt || true
             grep -a -A24 "=== win1_inventory\|=== win13_inventory" /mnt/w/fn_bigbag_report.txt | head -54 || true
+            grep -a -A5 "^--- callers of\|^--- recent chain" /mnt/w/fn_bigbag_report.txt | head -90 || true
             DIAG_MODE=save DIAG_SKIP_WINDOWS=1 timeout 1200 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play_bigsave.txt 2>&1
             grep -a 'DIAG.*save' /mnt/w/play_bigsave.txt | head -8
             python3 "$GITHUB_WORKSPACE/.github/diag/fn_report.py" /mnt/w/fn_save.txt | head -30
