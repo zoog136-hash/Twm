@@ -140,7 +140,9 @@ jobs:
           grep -a 'DIAG_MEM' /mnt/w/play0.txt | sort -t= -k5 | tail -1
           echo "----- boot (cold first start, then warm)"
           grep -a 'world scene ready\|entered game' /mnt/w/play0.txt | head -2
-          grep -a 'BOOT_PROGRESS' /mnt/w/play0.txt | grep -av 'ev=alive' | cut -c1-260 | head -120
+          echo "--- boot stages over 400 ms (cold): t stage ms"
+          grep -a 'BOOT_PROGRESS' /mnt/w/play0.txt | grep -a ' ev=end ' | sed -E 's/^.* t=([0-9]+) ev=end stage=([^ ]+)( table=([^ ]+))?.* ms=([0-9]+).*$/\1 \2 \4 \5/' | awk '$NF>=400' | head -150
+          grep -a 'BOOT_PROGRESS' /mnt/w/play0.txt | grep -a ' ev=mark \| ev=step ' | cut -c1-200 | head -60
           echo "--- loading stage text by first second (cold)"
           grep -a 'DIAG t=.* tick ' /mnt/w/play0.txt | sed -E 's/^.*DIAG t=([0-9.]+)s tick .*loading=(.*) awaiting.*$/\1 \2/' | awk '{t=$1; $1=""; if ($0!=last) {print t, $0; last=$0}}' | head -80
           for job in 마법사 요정; do
