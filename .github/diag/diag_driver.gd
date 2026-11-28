@@ -166,13 +166,17 @@ func _grant_big_bag(world: Node) -> void:
 	var ids: Variant = rows.call("column", "ItemClass", "ID")
 	var supply: Script = load("res://scripts/loot/patch523_item_inventory.gd")
 	var picked: Array = []
-	var step: int = maxi(1, int(ids.size() / 1500))
+	var step: int = 7
 	var i: int = 0
-	while i < ids.size() and picked.size() < 300:
+	var scan_started: int = Time.get_ticks_msec()
+	while i < ids.size() and picked.size() < 300 and Time.get_ticks_msec() - scan_started < 30000:
 		var id: int = int(ids[i])
 		i += step
 		if id <= 0: continue
 		var record: Dictionary = world.call("source_item_record", id, 1)
+		if record.is_empty():
+			var definition: Variant = world.call("source_item_definition", id)
+			if definition is Dictionary and not (definition as Dictionary).is_empty(): record = world.call("source_item_record", id, 1)
 		if record.is_empty(): continue
 		picked.append({"item_class_id": id, "amount": 1, "bless_raw": 1, "enchant": 0})
 	var ok: int = 0

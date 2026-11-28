@@ -135,6 +135,17 @@ jobs:
           cd /mnt/w/game
           # First start builds this device's caches; the timed start is the next one.
           DIAG_SKIP_WINDOWS=1 timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play0.txt 2>&1
+          if [ "${{ inputs.only }}" = "bigbag" ]; then
+            DIAG_MODE=bag DIAG_BIGBAG=1 timeout 1500 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play_bigbag.txt 2>&1
+            grep -a 'bigbag\|DIAG_WIN' /mnt/w/play_bigbag.txt | head -24 | cut -c1-220
+            python3 "$GITHUB_WORKSPACE/.github/diag/fn_report.py" /mnt/w/fn_bag.txt > /mnt/w/fn_bigbag_report.txt || true
+            grep -a -A24 "=== win1_inventory\|=== win13_inventory" /mnt/w/fn_bigbag_report.txt | head -54 || true
+            DIAG_MODE=save DIAG_SKIP_WINDOWS=1 timeout 1200 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play_bigsave.txt 2>&1
+            grep -a 'DIAG.*save' /mnt/w/play_bigsave.txt | head -8
+            python3 "$GITHUB_WORKSPACE/.github/diag/fn_report.py" /mnt/w/fn_save.txt | head -30
+            grep -a -n 'SCRIPT ERROR' -A2 /mnt/w/play_bigbag.txt /mnt/w/play_bigsave.txt | head -12
+            exit 0
+          fi
           grep -a 'DIAG_DONE' /mnt/w/play0.txt | head -1
           echo '--- memory (town run)'; grep -a 'DIAG_MEM' /mnt/w/play0.txt | awk 'NR%3==1' | head -80
           grep -a 'DIAG_MEM' /mnt/w/play0.txt | sort -t= -k5 | tail -1
