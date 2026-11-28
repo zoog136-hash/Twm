@@ -23,7 +23,7 @@ for sec, counter in agg.items():
     print('  most called:', ', '.join(f'{fn.split(":")[-1]}={n}' for fn, n in calls[sec].most_common(8)))
 # Who enters the hot functions: the function entered just before each call
 # that is not itself one of them (approximate caller).
-WATCH = ('source_dummy523.gd:record_evidence', 'patch523_rules.gd:catalog_identity_matches', 'patch523_rules.gd:catalog_record_of', 'patch523_rules.gd:_compiled_view', 'patch523_rules.gd:record_view', 'current523_native_item_projection.gd:record', 'patch523_monster_drops.gd:_current_native_bindings', 'skill_catalog.gd:enabled', 'reference_sp2_bank.gd:valid_sha', 'current523_native_fields.gd:field_view', 'current523_aden_play_renderer.gd:_read_chunk', 'current523_tile_pack.gd:texture_for')
+WATCH = ('source_dummy523.gd:record_evidence', 'patch523_rules.gd:catalog_identity_matches', 'patch523_rules.gd:catalog_record_of', 'patch523_rules.gd:_compiled_view', 'patch523_rules.gd:record_view', 'current523_native_item_projection.gd:record', 'patch523_monster_drops.gd:_current_native_bindings', 'skill_catalog.gd:enabled', 'reference_sp2_bank.gd:valid_sha', 'current523_native_fields.gd:field_view', 'current523_aden_play_renderer.gd:_read_chunk', 'current523_tile_pack.gd:texture_for', 'patch523_monster_drops.gd:_describe_item', 'current523_native_item_projection.gd:_skill_row_digest', 'retired_assets.gd:retired', 'patch523_monster_drops.gd:_remember_entry')
 prev_other = None; callers = collections.defaultdict(collections.Counter)
 chain = collections.deque(maxlen=6); chains = collections.defaultdict(collections.Counter)
 for line in open(sys.argv[1], errors='replace'):
