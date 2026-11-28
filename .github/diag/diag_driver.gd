@@ -156,6 +156,36 @@ func _skills_step(world: Node, now: int) -> void:
 	_sk_frame_at = Time.get_ticks_usec()
 	_sk_next = now + 1500
 
+## DIAG_BIGBAG=1: before the mode runs, fill the bag with ~300 distinct real
+## items (every Nth original ItemClass with a native record) through the same
+## receipted supply a box uses, so bag/save costs match a late-game phone bag.
+var _bigbag_done: bool = false
+func _grant_big_bag(world: Node) -> void:
+	_bigbag_done = true
+	var rows: Script = load("res://scripts/resources/current523_definition_rows.gd")
+	var ids: Variant = rows.call("column", "ItemClass", "ID")
+	var supply: Script = load("res://scripts/loot/patch523_item_inventory.gd")
+	var picked: Array = []
+	var step: int = maxi(1, int(ids.size() / 1500))
+	var i: int = 0
+	while i < ids.size() and picked.size() < 300:
+		var id: int = int(ids[i])
+		i += step
+		if id <= 0: continue
+		var record: Dictionary = world.call("source_item_record", id, 1)
+		if record.is_empty(): continue
+		picked.append({"item_class_id": id, "amount": 1, "bless_raw": 1, "enchant": 0})
+	var ok: int = 0
+	var t0: int = Time.get_ticks_msec()
+	for start: int in range(0, picked.size(), 25):
+		var batch: Array = picked.slice(start, start + 25)
+		var staged: Dictionary = supply.call("stage", world, batch, {"kind": "twilight_debug_catalog"})
+		if not staged.get("ok", false):
+			_say("bigbag stage refused: " + str(staged.get("reason", staged)).left(160))
+			continue
+		if supply.call("commit", world, batch, {"kind": "twilight_debug_catalog", "initial_level_origin": "twilight_debug_default_zero"}): ok += batch.size()
+	_say("bigbag granted %d of %d picked in %d ms, inventory=%d instances=%d" % [ok, picked.size(), Time.get_ticks_msec() - t0, (world.get("inventory") as Dictionary).size(), (world.get("item_instances") as Dictionary).size() if world.get("item_instances") is Dictionary else -1])
+
 var _win_last: int = 0
 var _win_open_at: int = 0
 var _win_name: String = ""
@@ -418,6 +448,8 @@ func _process(_delta: float) -> void:
 			if entered:
 				_say("entered game, class=" + str(scene.get("job_class")))
 				_sweep_started = now
+		if entered and OS.get_environment("DIAG_BIGBAG") == "1" and not _bigbag_done and now - _sweep_started > 6000:
+			_grant_big_bag(scene)
 		if now - last_tick >= 1000:
 			last_tick = now
 			var monsters: int = get_tree().get_nodes_in_group("monsters").size()
