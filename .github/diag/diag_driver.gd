@@ -139,10 +139,17 @@ func _skills_step(world: Node, now: int) -> void:
 	world.set("hp", int(world.call("_effective_max_hp")))
 	var label: String = "%s|%s|%s|%s" % [pass_name, str(record.get("id", "")), str(record.get("name", "")), str(record.get("mode", ""))]
 	var reason: String = str(svc.call("cost_reason", record, false))
-	_combat_trace.store_line("DIAG_TRACE mark cast " + label)
+	# First pass traced function by function; the repeat runs untraced so its
+	# call time is not inflated by the tracer.
+	var traced: bool = pass_name == "first"
+	if traced:
+		Engine.set_meta(&"diag_trace", _combat_trace)
+		_combat_trace.store_line("DIAG_TRACE mark cast " + label)
+	else: Engine.remove_meta(&"diag_trace")
 	var t0: int = Time.get_ticks_usec()
 	var ok: bool = bool(svc.call("cast", record, true))
 	var spent: int = Time.get_ticks_usec() - t0
+	if traced: _combat_trace.store_line("DIAG_TRACE mark called")
 	_say("DIAG_CAST %s ok=%s call_ms=%.1f reason=%s" % [label, str(ok), spent / 1000.0, reason])
 	_sk_current = label
 	_sk_worst = 0
@@ -407,7 +414,7 @@ func _process(_delta: float) -> void:
 		if scene.has_method("loading_readiness") and now - last_tick >= 1000:
 			_say("readiness " + JSON.stringify(scene.call("loading_readiness")) + " aden_play=" + str(scene.get("current523_aden_play_active")) + " problem=" + str(scene.get("current523_aden_play_problem")) + " field_map=" + str(scene.get("field_map")))
 		if not entered and not get_tree().paused:
-			entered = QA.enter_game(scene)
+			entered = QA.enter_game(scene, OS.get_environment("DIAG_CLASS") if not OS.get_environment("DIAG_CLASS").is_empty() else "기사")
 			if entered:
 				_say("entered game, class=" + str(scene.get("job_class")))
 				_sweep_started = now
