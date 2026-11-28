@@ -547,12 +547,15 @@ var _save_traced: bool = false
 func _save_trace(world: Node) -> void:
 	var trace := FileAccess.open("/mnt/w/fn_save.txt", FileAccess.WRITE)
 	Engine.set_meta(&"diag_trace", trace)
+	trace.store_line("DIAG_TRACE begin save")
+	var save_started: int = Time.get_ticks_msec()
 	for i: int in 5:
 		var t0: int = Time.get_ticks_usec()
 		var result: Variant = world.call("_save_game", true)
 		trace.store_line("FN %d diag:save_done" % Time.get_ticks_usec())
 		_say("save %d result=%s ms=%.1f" % [i, str(result), (Time.get_ticks_usec() - t0) / 1000.0])
 		for f: int in 5: await get_tree().process_frame
+	trace.store_line("DIAG_TRACE end save %d ms" % (Time.get_ticks_msec() - save_started))
 	Engine.remove_meta(&"diag_trace")
 	trace.close()
 	_say("save trace done")
