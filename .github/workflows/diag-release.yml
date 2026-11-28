@@ -151,6 +151,14 @@ jobs:
           echo "----- save cost"
           grep -a 'DIAG.*save' /mnt/w/play_save.txt | head -10
           python3 "$GITHUB_WORKSPACE/.github/diag/fn_report.py" /mnt/w/fn_save.txt | head -60
+          echo "----- boot (cold first start, then warm)"
+          grep -a 'world scene ready\|entered game' /mnt/w/play0.txt | head -2
+          grep -a 'world scene ready\|entered game' /mnt/w/play_bag.txt | head -2
+          DIAG_MODE=skills timeout 1500 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play_skills.txt 2>&1
+          echo "----- skills (buff / area casts)"
+          grep -a 'skills list\|DIAG_CAST\|skills trace' /mnt/w/play_skills.txt | cut -c1-220 | head -200
+          python3 "$GITHUB_WORKSPACE/.github/diag/skill_report.py" /mnt/w/fn_skills.txt 18 || true
+          grep -a -n 'SCRIPT ERROR' /mnt/w/play_skills.txt | head -10
           DIAG_MODE=combat timeout 1800 ./twilight.x86_64 --headless -- --source523-pack=/mnt/w/x/source523 > /mnt/w/play.txt 2>&1
           grep -a 'combat trace\|combat region\|DIAG_SPAWN_OK' /mnt/w/play.txt | head -20
           echo "----- combat function time"

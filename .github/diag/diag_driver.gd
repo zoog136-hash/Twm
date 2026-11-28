@@ -76,6 +76,79 @@ func _combat_step(world: Node, now: int) -> void:
 		_combat_trace.close()
 		_combat_done = true
 		_say("combat trace done")
+## Skills mode: learn every buff and area skill of the class, then cast them
+## one by one (cooldowns, MP and HP refilled) with every function traced.
+## Prints each cast's call time and the worst frame in the 1.5 s after it.
+var _sk_list: Array = []
+var _sk_index: int = 0
+var _sk_next: int = 0
+var _sk_frame_at: int = 0
+var _sk_worst: int = 0
+var _sk_current: String = ""
+func _skills_step(world: Node, now: int) -> void:
+	if _combat_done: return
+	var frame_at: int = Time.get_ticks_usec()
+	if _sk_frame_at > 0: _sk_worst = maxi(_sk_worst, frame_at - _sk_frame_at)
+	_sk_frame_at = frame_at
+	var svc: Object = world.get("original_skills")
+	if svc == null: return
+	var cat: Object = svc.get("catalog")
+	if _combat_started == 0:
+		if _spawned_ok < 1 and not _spawn_done:
+			_spawn_step(world)
+			return
+		_fill_region(world)
+		world.set("level", maxi(int(world.get("level")), 90))
+		for r: Variant in cat.get("records"):
+			if not r is Dictionary or not bool(cat.call("permitted", r)) or bool(r.get("runtime_blocked", false)) or str(r.get("activation", "")) == "passive": continue
+			var mode: String = str(r.get("mode", ""))
+			if bool(svc.call("is_area_cast", r)) or mode in ["buff", "counter", "stealth"]:
+				_sk_list.append(r)
+				(cat.get("learned") as Dictionary)[str(r.get("id", ""))] = 1
+		cat.set("revision", int(cat.get("revision")) + 1)
+		_say("skills list %d (class %s)" % [_sk_list.size(), str(world.get("job_class"))])
+		_combat_trace = FileAccess.open("/mnt/w/fn_skills.txt", FileAccess.WRITE)
+		_combat_trace.store_line("DIAG_TRACE begin skills")
+		Engine.set_meta(&"diag_trace", _combat_trace)
+		_combat_started = now
+		_sk_next = now + 1500
+		return
+	if now - _last_refill > 4000:
+		_last_refill = now
+		_fill_region(world)
+	if now < _sk_next: return
+	if not _sk_current.is_empty():
+		_say("DIAG_CAST_FRAME %s worst_frame_ms=%d" % [_sk_current, _sk_worst / 1000])
+		_sk_current = ""
+	if _sk_index >= _sk_list.size() * 2 or now - _combat_started > 240000:
+		Engine.remove_meta(&"diag_trace")
+		_combat_trace.store_line("DIAG_TRACE end skills %d ms" % (now - _combat_started))
+		_combat_trace.close()
+		_combat_done = true
+		_say("skills trace done")
+		return
+	if not (world.get("pending_attack") as Dictionary).is_empty():
+		_sk_next = now + 200
+		return
+	var record: Dictionary = _sk_list[_sk_index % _sk_list.size()]
+	var pass_name: String = "first" if _sk_index < _sk_list.size() else "again"
+	_sk_index += 1
+	world.set("skill_global_cooldown", 0.0)
+	(world.get("skill_cooldowns") as Dictionary).clear()
+	world.set("mp", int(world.call("_effective_max_mp")))
+	world.set("hp", int(world.call("_effective_max_hp")))
+	var label: String = "%s|%s|%s|%s" % [pass_name, str(record.get("id", "")), str(record.get("name", "")), str(record.get("mode", ""))]
+	var reason: String = str(svc.call("cost_reason", record, false))
+	_combat_trace.store_line("DIAG_TRACE mark cast " + label)
+	var t0: int = Time.get_ticks_usec()
+	var ok: bool = bool(svc.call("cast", record, true))
+	var spent: int = Time.get_ticks_usec() - t0
+	_say("DIAG_CAST %s ok=%s call_ms=%.1f reason=%s" % [label, str(ok), spent / 1000.0, reason])
+	_sk_current = label
+	_sk_worst = 0
+	_sk_frame_at = Time.get_ticks_usec()
+	_sk_next = now + 1500
+
 var _win_last: int = 0
 var _win_open_at: int = 0
 var _win_name: String = ""
@@ -352,10 +425,12 @@ func _process(_delta: float) -> void:
 			_save_trace(scene)
 		if entered and OS.get_environment("DIAG_MODE") == "combat" and not get_tree().paused and now - _sweep_started > 8000:
 			_combat_step(scene, now)
-		elif entered and OS.get_environment("DIAG_SKIP_WINDOWS") != "1" and OS.get_environment("DIAG_MODE") != "combat" and not get_tree().paused and now - _sweep_started > 15000 and _win_index < WINDOWS.size() and now - _win_last > 2500:
+		elif entered and OS.get_environment("DIAG_MODE") == "skills" and not get_tree().paused and now - _sweep_started > 8000:
+			_skills_step(scene, now)
+		elif entered and OS.get_environment("DIAG_SKIP_WINDOWS") != "1" and not OS.get_environment("DIAG_MODE") in ["combat", "skills"] and not get_tree().paused and now - _sweep_started > 15000 and _win_index < WINDOWS.size() and now - _win_last > 2500:
 			_win_last = now
 			_window_step(scene)
-		if now - world_at >= int(PLAY_SECONDS * 1000.0) and OS.get_environment("DIAG_MODE") != "pixels":
+		if now - world_at >= int(PLAY_SECONDS * 1000.0) and OS.get_environment("DIAG_MODE") != "pixels" and not (OS.get_environment("DIAG_MODE") == "skills" and not _combat_done):
 			_say("DIAG_DONE survived %.0fs in world" % PLAY_SECONDS)
 			get_tree().quit(0)
 	if now - started > int(OS.get_environment("DIAG_TIMEOUT_S") if not OS.get_environment("DIAG_TIMEOUT_S").is_empty() else "2400") * 1000:
